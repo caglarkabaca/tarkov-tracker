@@ -6,14 +6,31 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "generate:graphql": "graphql-codegen --config codegen.yml",
+    "dev:with-types": "npm run generate:graphql && next dev"
   },
   "dependencies": {
+    "@tamagui/animations-react-native": "^1.138.6",
+    "@tamagui/config": "^1.138.6",
+    "@tamagui/core": "^1.138.6",
+    "@tamagui/vite-plugin": "^1.138.6",
+    "@types/dagre": "^0.7.53",
+    "@xyflow/react": "^12.9.3",
+    "dagre": "^0.8.5",
+    "graphql": "^16.12.0",
+    "lucide-react": "^0.555.0",
+    "mongodb": "^7.0.0",
     "next": "16.0.6",
     "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "react-dom": "19.2.0",
+    "react-zoom-pan-pinch": "^3.7.0",
+    "tamagui": "^1.138.6"
   },
   "devDependencies": {
+    "@graphql-codegen/cli": "^6.1.0",
+    "@graphql-codegen/typescript": "^5.0.6",
+    "@graphql-codegen/typescript-operations": "^5.0.6",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

@@ -1,0 +1,14 @@
+overwrite: true
+schema: 
+  - 'https://api.tarkov.dev/graphql':
+      headers:
+        Content-Type: application/json
+documents: null
+generates:
+  lib/generated/graphql.ts:
+    plugins:
+      - typescript
+    config:
+      skipTypename: false
+      enumsAsTypes: true
+
