@@ -542,8 +542,7 @@ export default function HomePage() {
             width={750}
             minWidth={650}
             maxHeight="calc(100vh - 300px)"
-            position="sticky"
-            top="$2"
+            style={{ position: 'sticky', top: '8px' }}
             flexShrink={0}
           >
             <YStack gap="$2" height="100%">
