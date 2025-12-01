@@ -9,6 +9,7 @@ import { QuestDetailModal } from './components/QuestDetailModal'
 import { TraderCard } from './components/TraderCard'
 import { MapFilter } from './components/MapFilter'
 import { UserAuth } from './components/UserAuth'
+import { Footer } from './components/Footer'
 import { 
   filterQuestsByTrader,
   filterQuestsByMap,
@@ -122,7 +123,7 @@ export default function HomePage() {
           }
           
           if (data.user.completedQuestIds && data.user.completedQuestIds.length > 0) {
-            const doneIds = new Set(data.user.completedQuestIds)
+            const doneIds = new Set<string>(data.user.completedQuestIds)
             setDoneQuestIds(doneIds)
             localStorage.setItem('tarkov-quest-done', JSON.stringify(Array.from(doneIds)))
           }
@@ -333,6 +334,21 @@ export default function HomePage() {
     return displayedQuests.length
   }, [displayedQuests])
 
+  // Helper function to count available quests for a trader
+  const getAvailableQuestCount = useCallback((traderId: string | null) => {
+    return quests.filter(q => {
+      // Filter by trader if specified
+      if (traderId !== null && q.trader?.id !== traderId) return false
+      // Exclude completed quests
+      if (doneQuestIds.has(q.id)) return false
+      // Exclude locked quests (prerequisites not met)
+      if (!isQuestUnlocked(q, doneQuestIds)) return false
+      // Exclude quests with insufficient level
+      if (q.minPlayerLevel && playerLevel < q.minPlayerLevel) return false
+      return true
+    }).length
+  }, [quests, doneQuestIds, playerLevel])
+
   const handleToggleDone = (questId: string) => {
     const newDoneIds = toggleQuestDone(questId, doneQuestIds)
     setDoneQuestIds(newDoneIds)
@@ -362,9 +378,21 @@ export default function HomePage() {
       <YStack gap="$2" maxWidth={1800} width="100%" marginHorizontal="auto">
         {/* Header */}
         <XStack gap="$2" alignItems="center" justifyContent="space-between" flexWrap="wrap">
-          <H1 size="$7" color="$color12">
-            Tarkov Quest Tracker
-          </H1>
+          <XStack gap="$2" alignItems="center">
+            <img
+              src="/logo.png"
+              alt="caca's Tarkov Tracker"
+              style={{ width: 40, height: 40, objectFit: 'contain' }}
+            />
+            <YStack gap="$0">
+              <H1 size="$7" color="$color12">
+                caca's Tarkov Tracker
+              </H1>
+              <Text fontSize="$1" color="$color9">
+                v0.1.0-beta
+              </Text>
+            </YStack>
+          </XStack>
           
           <XStack gap="$2" alignItems="center">
             <Button
@@ -471,11 +499,11 @@ export default function HomePage() {
                 <TraderCard
                   trader={{ id: 'all', name: 'All' }}
                   isSelected={selectedTrader === null}
-                  questCount={quests.length}
+                  questCount={getAvailableQuestCount(null)}
                   onPress={() => setSelectedTrader(null)}
                 />
                 {traders.map((trader) => {
-                  const traderQuestCount = quests.filter(q => q.trader?.id === trader.id).length
+                  const traderQuestCount = getAvailableQuestCount(trader.id)
                   return (
                     <TraderCard
                       key={trader.id}
@@ -611,6 +639,7 @@ export default function HomePage() {
           />
         )}
       </YStack>
+      <Footer />
     </YStack>
   )
 }

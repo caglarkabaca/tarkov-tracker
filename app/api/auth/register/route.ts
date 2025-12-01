@@ -44,6 +44,7 @@ export async function POST(request: NextRequest) {
         id: user._id?.toString(),
         username: user.username,
         playerLevel: user.playerLevel,
+        isAdmin: user.isAdmin || false,
       },
     })
   } catch (error) {

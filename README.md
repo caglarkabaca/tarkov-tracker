@@ -1,184 +1,207 @@
-# Tarkov Quest - Tamagui + Next.js Full Stack Web App
+# caca's Tarkov Tracker
 
-Bu proje, Next.js 16 App Router ve Tamagui UI kütüphanesi kullanılarak oluşturulmuş modern bir full stack web uygulamasıdır.
+**Version:** 0.1.0-beta
 
-## 🚀 Özellikler
+> **Vibe Coded** - This project was vibe coded from scratch. If you want to use this, keep this in mind.
 
-- ⚡ **Next.js 16** - React Server Components ve App Router
-- 🎨 **Tamagui** - Modern UI component kütüphanesi
-- 📱 **Responsive Design** - Mobil uyumlu tasarım
-- 🔥 **TypeScript** - Tip güvenli kod
-- 🎯 **API Routes** - Full stack uygulama desteği
-- 💅 **Tailwind CSS** - Utility-first CSS framework
+A comprehensive quest tracking application for Escape from Tarkov, built with Next.js and Tamagui.
 
-## 📦 Kurulum
+## 📋 About
+
+caca's Tarkov Tracker helps players manage their quest progress in Escape from Tarkov. Track quests, view dependencies, and plan your progression with an interactive quest graph. This application uses data from the Tarkov.dev API, which is licensed under GNU GPLv3.
+
+## 🚀 Features
+
+- 📊 **Quest Tracking** - Track your progress across all traders
+- 🗺️ **Map Filtering** - Filter quests by location with interactive map
+- 📈 **Quest Graph** - Visualize quest dependencies with an interactive graph (using React Flow)
+- 🎯 **Level Filtering** - See only available quests based on your level
+- ✅ **Progress Saving** - Save your progress and completed quests to MongoDB
+- 🔄 **Real-time Updates** - Daily data sync with Tarkov.dev API
+- 📱 **Responsive Design** - Works on desktop and mobile devices
+- 🌙 **Dark Theme** - Easy on the eyes
+- 👤 **User Accounts** - Save your progress with username/password authentication
+- 🔐 **Admin Panel** - Admin users can refresh data from the API
+
+## 🛠️ Tech Stack
+
+- **Next.js 16** - React Server Components and App Router
+- **Tamagui** - Modern UI component library
+- **TypeScript** - Type-safe code
+- **MongoDB** - Data storage
+- **React Flow** - Interactive graph visualization
+- **GraphQL** - Data fetching from Tarkov.dev API
+- **Dagre** - Automatic graph layout algorithm
+
+## 📦 Installation
+
+### Prerequisites
+
+- Node.js 18+ 
+- MongoDB (local or Atlas)
+- npm or yarn
+
+### Setup
 
 ```bash
-# Bağımlılıkları yükle
+# Clone the repository
+git clone <repository-url>
+cd tarkovquest
+
+# Install dependencies
 npm install
 
-# Environment variables'ı ayarla
-# .env.local dosyası oluştur ve aşağıdaki değişkenleri ekle:
-# MONGODB_URI=mongodb://localhost:27017
-# MONGODB_DB_NAME=tarkovquest
+# Set up environment variables
+cp .env.example .env.local
+# Edit .env.local with your MongoDB connection string
 
-# GraphQL type'larını generate et (ilk kurulumda)
+# Generate GraphQL types
 npm run generate:graphql
 
-# Development server'ı başlat
+# Run development server
 npm run dev
 ```
 
-Tarayıcınızda [http://localhost:3000](http://localhost:3000) adresini açın.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ### Environment Variables
 
-Proje çalışması için `.env.local` dosyası oluşturmanız gerekiyor:
+Create a `.env.local` file in the root directory:
 
 ```env
 MONGODB_URI=mongodb://localhost:27017
 MONGODB_DB_NAME=tarkovquest
 ```
 
-MongoDB Atlas kullanıyorsanız, connection string şu formatta olmalı:
+For MongoDB Atlas:
+
 ```env
 MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/
+MONGODB_DB_NAME=tarkovquest
 ```
 
-## 🏗️ Proje Yapısı
+## 📖 Usage
+
+1. **Register/Login** - Create an account to save your progress
+2. **Set Your Level** - Enter your player level to see available quests
+3. **Filter by Trader** - Select a trader to see their quests
+4. **Filter by Map** - Click on the map to filter quests by location
+5. **View Quest Graph** - Navigate to the graph page to see quest dependencies
+6. **Mark Complete** - Click on quest cards to mark them as complete
+
+## 🏗️ Project Structure
 
 ```
 tarkovquest/
 ├── app/
-│   ├── api/              # API routes (backend)
-│   │   ├── tarkov/       # Tarkov API endpoints
-│   │   │   ├── fetch/    # Data fetch endpoint
-│   │   │   ├── data/     # Cached data endpoint
-│   │   │   └── status/   # Fetch status endpoint
-│   │   └── hello/        # Örnek API endpoint
-│   ├── providers.tsx     # Tamagui Provider
-│   ├── layout.tsx        # Root layout
-│   ├── page.tsx          # Ana sayfa
-│   └── globals.css       # Global stiller
+│   ├── api/              # API routes
+│   │   ├── auth/         # Authentication endpoints
+│   │   └── tarkov/       # Tarkov data endpoints
+│   ├── components/       # React components
+│   │   ├── Footer.tsx    # Footer with version and license
+│   │   ├── QuestCard.tsx # Quest card component
+│   │   ├── QuestNode.tsx # Graph node component
+│   │   └── ...
+│   ├── graph/            # Quest graph page
+│   ├── login/            # Login page
+│   └── page.tsx          # Main page
 ├── lib/
 │   ├── db/               # Database operations
-│   │   └── tarkov.ts     # Tarkov data operations
-│   ├── generated/        # Generated files (git ignored)
-│   │   └── graphql.ts    # GraphQL TypeScript types
 │   ├── graphql/          # GraphQL utilities
-│   │   └── client.ts     # GraphQL client
 │   ├── types/            # Type definitions
-│   │   └── tarkov.ts     # Tarkov types
-│   └── mongodb.ts        # MongoDB connection
-├── codegen.yml           # GraphQL Code Generator config
-├── tamagui.config.ts     # Tamagui yapılandırması
-└── next.config.ts        # Next.js yapılandırması
+│   └── utils/            # Utility functions
+├── public/               # Static assets
+│   ├── logo.png          # Application logo
+│   ├── favicon.ico       # Favicon
+│   └── full_map.jpeg     # Tarkov map image
+├── LICENSE               # GNU GPLv3 License
+└── README.md             # This file
 ```
 
-## 🛠️ Kullanım
+## 📚 API Documentation
 
-### Tamagui Component'leri Kullanma
+### Tarkov Data API
 
-```tsx
-import { Button, Card, H1, Paragraph } from 'tamagui'
+- `GET /api/tarkov/data` - Get cached quest data (public)
+- `GET /api/tarkov/fetch` - Fetch and cache data (admin only)
+- `GET /api/tarkov/status` - Check fetch status
+- `GET /api/tarkov/traders` - Get trader data
 
-export default function MyPage() {
-  return (
-    <Card padding="$4">
-      <H1>Başlık</H1>
-      <Paragraph>İçerik</Paragraph>
-      <Button theme="blue">Tıkla</Button>
-    </Card>
-  )
-}
-```
+### Authentication API
 
-### API Route Oluşturma
+- `POST /api/auth/register` - Register new user
+- `POST /api/auth/login` - Login user
+- `GET /api/auth/user` - Get user data
+- `PUT /api/auth/progress` - Save user progress
 
-`app/api/` dizini altında yeni route'lar oluşturabilirsiniz:
+## 🔄 Data Fetching
 
-```tsx
-// app/api/example/route.ts
-import { NextResponse } from 'next/server'
+The application fetches quest data from [Tarkov.dev API](https://api.tarkov.dev/), which is licensed under GNU GPLv3. Data is cached for 24 hours to reduce API load. Only admin users can refresh the data cache.
 
-export async function GET() {
-  return NextResponse.json({ message: 'Hello API' })
-}
-```
+### Generate GraphQL Types
 
-## 🔄 GraphQL ve Data Fetching
-
-### GraphQL Type Generation
-
-Tarkov.dev API'sinden schema'yı çekip TypeScript type'larını generate etmek için:
+When the API schema changes, regenerate types:
 
 ```bash
 npm run generate:graphql
 ```
 
-Bu komut `lib/generated/graphql.ts` dosyasını oluşturur/günceller.
-
-### Günlük Data Fetch
-
-API route'ları 24 saatlik cache mekanizması ile çalışır:
-
-- `GET /api/tarkov/fetch` - Data fetch et (cache kontrolü ile)
-- `GET /api/tarkov/data` - Cache'lenmiş data'yı getir
-- `GET /api/tarkov/status` - Fetch status bilgisini getir
-
-#### Kullanım Örnekleri:
-
-```typescript
-// Status kontrolü
-const status = await fetch('/api/tarkov/status?queryName=items')
-const { shouldFetch, lastFetched } = await status.json()
-
-// Data fetch (otomatik cache kontrolü)
-const response = await fetch('/api/tarkov/fetch?queryName=items')
-const data = await response.json()
-
-// Force refresh
-const response = await fetch('/api/tarkov/fetch?queryName=items&force=true')
-const data = await response.json()
-
-// Cached data'yı getir
-const response = await fetch('/api/tarkov/data?queryName=items')
-const cached = await response.json()
-```
-
-### GraphQL Query Ekleme
-
-GraphQL query'nizi `app/api/tarkov/fetch/route.ts` dosyasındaki `DEFAULT_GRAPHQL_QUERY` değişkenini güncelleyerek veya API'ye POST request ile göndererek ekleyebilirsiniz.
-
-## 📚 Kaynaklar
-
-- [Next.js Dokümantasyonu](https://nextjs.org/docs)
-- [Tamagui Dokümantasyonu](https://tamagui.dev/docs/intro/introduction)
-- [Tamagui Components](https://tamagui.dev/docs/components/stacks)
-- [Tarkov.dev API](https://api.tarkov.dev/)
-- [GraphQL Code Generator](https://the-guild.dev/graphql/codegen)
-
 ## 🚢 Deployment
 
-Projeyi deploy etmek için:
+### Build for Production
 
 ```bash
 npm run build
 npm start
 ```
 
-Veya Vercel, Netlify gibi platformlara deploy edebilirsiniz.
+### Environment Variables for Production
 
-## 📝 Notlar
+Make sure to set these in your hosting platform:
 
-- Tamagui component'leri client-side'da çalışır, bu yüzden `'use client'` direktifi gerekebilir
-- API routes server-side'da çalışır
-- TypeScript kullanıldığı için tip güvenliği sağlanmıştır
+- `MONGODB_URI` - MongoDB connection string (required)
+- `MONGODB_DB_NAME` - Database name (optional, defaults to "tarkovquest")
 
-## 🤝 Katkıda Bulunma
+### Deploy to Vercel
 
-1. Fork edin
-2. Feature branch oluşturun (`git checkout -b feature/amazing-feature`)
-3. Commit edin (`git commit -m 'Add some amazing feature'`)
-4. Push edin (`git push origin feature/amazing-feature`)
-5. Pull Request açın
+```bash
+vercel
+```
+
+Make sure to add your environment variables in the Vercel dashboard.
+
+## 📝 License
+
+This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+**Important:** This project uses data from [Tarkov.dev API](https://api.tarkov.dev/), which is also licensed under GNU GPLv3. You must comply with the GPLv3 license terms when using or distributing this application.
+
+See [LICENSE](LICENSE) file for the full license text.
+
+## 🙏 Acknowledgments
+
+- [Tarkov.dev API](https://api.tarkov.dev/) - Quest data source (GNU GPLv3 licensed)
+- [Escape from Tarkov](https://www.escapefromtarkov.com/) - Game by Battlestate Games
+- [React Flow](https://reactflow.dev/) - Graph visualization library
+- [Tamagui](https://tamagui.dev/) - UI component library
+
+## 🔗 Links
+
+- [Tarkov.dev API Documentation](https://api.tarkov.dev/)
+- [Next.js Documentation](https://nextjs.org/docs)
+- [Tamagui Documentation](https://tamagui.dev/docs)
+- [GNU GPLv3 License](https://www.gnu.org/licenses/gpl-3.0.html)
+
+## 📧 Contact
+
+For issues, questions, or contributions, please open an issue on GitHub.
+
+---
+
+**Version:** 0.1.0-beta  
+**License:** GNU GPLv3  
+**Last Updated:** 2025

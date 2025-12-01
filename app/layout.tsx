@@ -14,8 +14,17 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Tarkov Quest",
-  description: "Full stack web app with Tamagui",
+  title: "caca's Tarkov Tracker",
+  description: "Comprehensive quest tracking application for Escape from Tarkov - Track your quest progress, view dependencies, and plan your progression",
+  icons: {
+    icon: '/favicon.ico',
+    apple: '/logo.png',
+  },
+  openGraph: {
+    title: "caca's Tarkov Tracker",
+    description: "Comprehensive quest tracking application for Escape from Tarkov",
+    type: 'website',
+  },
 };
 
 export default function RootLayout({

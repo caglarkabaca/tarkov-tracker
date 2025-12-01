@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button, Card, H1, Text, XStack, YStack, Input, Spinner } from 'tamagui'
+import { Footer } from '../components/Footer'
 
 interface AuthResponse {
   success: boolean
@@ -78,9 +79,21 @@ export default function LoginPage() {
         maxWidth={400}
       >
         <YStack gap="$4">
-          <H1 size="$8" textAlign="center" color="$color12">
-            {isLogin ? 'Login' : 'Register'}
-          </H1>
+          <XStack alignItems="center" justifyContent="center" gap="$2">
+            <img
+              src="/logo.png"
+              alt="caca's Tarkov Tracker"
+              style={{ width: 48, height: 48, objectFit: 'contain' }}
+            />
+            <YStack gap="$0">
+              <H1 size="$8" textAlign="center" color="$color12">
+                {isLogin ? 'Login' : 'Register'}
+              </H1>
+              <Text fontSize="$1" color="$color9" textAlign="center">
+                v0.1.0-beta
+              </Text>
+            </YStack>
+          </XStack>
 
           {error && (
             <Card size="$2" bordered padding="$2" backgroundColor="$red2">
@@ -124,7 +137,10 @@ export default function LoginPage() {
               <Button
                 size="$4"
                 theme="blue"
-                onPress={handleSubmit}
+                onPress={(e) => {
+                  e.preventDefault()
+                  handleSubmit(e as any)
+                }}
                 disabled={loading || !username || !password}
                 marginTop="$2"
               >
@@ -158,6 +174,7 @@ export default function LoginPage() {
           </XStack>
         </YStack>
       </Card>
+      <Footer />
     </YStack>
   )
 }

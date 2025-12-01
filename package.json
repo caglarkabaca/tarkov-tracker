@@ -1,7 +1,10 @@
 {
   "name": "tarkovquest",
-  "version": "0.1.0",
+  "version": "0.1.0-beta",
+  "description": "caca's Tarkov Tracker - Comprehensive quest tracking application for Escape from Tarkov",
+  "license": "GPL-3.0",
   "private": true,
+  "author": "caca",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

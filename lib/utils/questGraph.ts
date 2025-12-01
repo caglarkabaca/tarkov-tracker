@@ -10,19 +10,78 @@ export interface QuestNodeData extends Record<string, unknown> {
   isCompleted: boolean
   isIsolated: boolean
   playerLevel?: number
+  isFromOtherTrader?: boolean
 }
 
 /**
  * Build graph structure from quests for React Flow
  * Groups quests by their dependency levels
+ * Also includes prerequisites from other traders
  */
-export function buildQuestGraph(quests: Task[], doneQuestIds: Set<string>, playerLevel: number = 1): { nodes: Node<QuestNodeData>[], edges: Edge[] } {
+export function buildQuestGraph(quests: Task[], doneQuestIds: Set<string>, playerLevel: number = 1, allQuests: Task[] = []): { nodes: Node<QuestNodeData>[], edges: Edge[] } {
   const nodes: Node<QuestNodeData>[] = []
   const edges: Edge[] = []
   const questMap = new Map<string, Task>()
+  const allQuestsMap = new Map<string, Task>()
   
+  // Map of current trader's quests
   quests.forEach(quest => {
     questMap.set(quest.id, quest)
+  })
+  
+  // Map of all quests (for finding prerequisites from other traders)
+  const questsToUse = allQuests.length > 0 ? allQuests : quests
+  questsToUse.forEach(quest => {
+    allQuestsMap.set(quest.id, quest)
+  })
+  
+  // Find prerequisites from other traders and add them to the graph (recursive)
+  const questsToProcess = new Set<string>(quests.map(q => q.id))
+  const addedPrerequisites = new Set<string>()
+  
+  // Recursive function to find all prerequisites from other traders
+  function addPrerequisitesFromOtherTraders(questId: string) {
+    const quest = allQuestsMap.get(questId)
+    if (!quest || !quest.taskRequirements) return
+    
+    quest.taskRequirements.forEach(req => {
+      const prereqId = req.task?.id
+      if (!prereqId || !allQuestsMap.has(prereqId)) return
+      
+      // If prerequisite is from another trader and not in current set
+      if (!questMap.has(prereqId)) {
+        if (!addedPrerequisites.has(prereqId)) {
+          addedPrerequisites.add(prereqId)
+          questsToProcess.add(prereqId)
+          // Recursively add prerequisites of this prerequisite
+          addPrerequisitesFromOtherTraders(prereqId)
+        }
+      }
+    })
+  }
+  
+  // Find all prerequisite quests from other traders (recursive)
+  quests.forEach(quest => {
+    if (quest.taskRequirements && quest.taskRequirements.length > 0) {
+      addPrerequisitesFromOtherTraders(quest.id)
+    }
+  })
+  
+  // Build final quest list including prerequisites from other traders
+  const finalQuests: Task[] = Array.from(questsToProcess).map(id => {
+    const quest = allQuestsMap.get(id)
+    if (!quest) {
+      // Fallback to questMap if not found in allQuestsMap
+      return questMap.get(id)
+    }
+    return quest
+  }).filter((q): q is Task => !!q)
+  
+  // Update questMap to include all quests
+  finalQuests.forEach(quest => {
+    if (!questMap.has(quest.id)) {
+      questMap.set(quest.id, quest)
+    }
   })
 
   // Calculate dependency levels
@@ -65,14 +124,17 @@ export function buildQuestGraph(quests: Task[], doneQuestIds: Set<string>, playe
     return level
   }
 
-  // Calculate levels for all quests
-  quests.forEach(quest => {
+  // Original trader quest IDs (to identify which quests are from other traders)
+  const originalTraderQuestIds = new Set(quests.map(q => q.id))
+  
+  // Calculate levels for all quests (including prerequisites from other traders)
+  finalQuests.forEach(quest => {
     getLevel(quest.id)
   })
 
   // Find which quests are required by other quests (dependent quests)
   const requiredByQuests = new Set<string>()
-  quests.forEach(quest => {
+  finalQuests.forEach(quest => {
     if (quest.taskRequirements && quest.taskRequirements.length > 0) {
       quest.taskRequirements.forEach(req => {
         if (req.task?.id && questMap.has(req.task.id)) {
@@ -87,7 +149,7 @@ export function buildQuestGraph(quests: Task[], doneQuestIds: Set<string>, playe
   const isolatedQuests = new Set<string>()
   const connectedQuests = new Set<string>()
   
-  quests.forEach(quest => {
+  finalQuests.forEach(quest => {
     // Check if quest has any requirements at all (even from other traders/quests not in current set)
     const hasAnyRequirements = quest.taskRequirements && quest.taskRequirements.length > 0
     
@@ -114,7 +176,7 @@ export function buildQuestGraph(quests: Task[], doneQuestIds: Set<string>, playe
   const isolatedByLevel = new Map<number, Task[]>()
   const connectedByLevel = new Map<number, Task[]>()
   
-  quests.forEach(quest => {
+  finalQuests.forEach(quest => {
     const level = levels.get(quest.id) || 0
     if (isolatedQuests.has(quest.id)) {
       if (!isolatedByLevel.has(level)) {
@@ -140,9 +202,9 @@ export function buildQuestGraph(quests: Task[], doneQuestIds: Set<string>, playe
   const connectedXStart = 400
 
   // Calculate max nodes for height calculation (consider both groups)
-  const allQuests = Array.from(isolatedByLevel.values()).concat(Array.from(connectedByLevel.values()))
-  const maxNodesInLevel = allQuests.length > 0 
-    ? Math.max(...allQuests.map(quests => quests.length), 1)
+  const allQuestGroups = Array.from(isolatedByLevel.values()).concat(Array.from(connectedByLevel.values()))
+  const maxNodesInLevel = allQuestGroups.length > 0 
+    ? Math.max(...allQuestGroups.map(questGroup => questGroup.length), 1)
     : 1
   
   // Position isolated quests on the left
@@ -162,6 +224,8 @@ export function buildQuestGraph(quests: Task[], doneQuestIds: Set<string>, playe
         return
       }
       
+      const isFromOtherTrader = !originalTraderQuestIds.has(quest.id)
+      
       nodes.push({
         id: quest.id,
         type: 'questNode',
@@ -171,6 +235,7 @@ export function buildQuestGraph(quests: Task[], doneQuestIds: Set<string>, playe
           isCompleted: doneQuestIds.has(quest.id),
           isIsolated: true,
           playerLevel,
+          isFromOtherTrader,
         },
       })
     })
@@ -193,6 +258,8 @@ export function buildQuestGraph(quests: Task[], doneQuestIds: Set<string>, playe
         return
       }
       
+      const isFromOtherTrader = !originalTraderQuestIds.has(quest.id)
+      
       nodes.push({
         id: quest.id,
         type: 'questNode',
@@ -202,6 +269,7 @@ export function buildQuestGraph(quests: Task[], doneQuestIds: Set<string>, playe
           isCompleted: doneQuestIds.has(quest.id),
           isIsolated: false,
           playerLevel,
+          isFromOtherTrader,
         },
       })
 

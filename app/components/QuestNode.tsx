@@ -7,7 +7,7 @@ import { Lock } from 'lucide-react'
 
 export const QuestNode = memo((props: NodeProps) => {
   const data = props.data as QuestNodeData
-  const { quest, isCompleted, isIsolated, playerLevel = 1 } = data
+  const { quest, isCompleted, isIsolated, playerLevel = 1, isFromOtherTrader = false } = data
   const traderImage = quest.trader?.image4xLink
   const selected = props.selected
   
@@ -49,11 +49,11 @@ export const QuestNode = memo((props: NodeProps) => {
         padding: '12px',
         borderRadius: '8px',
         backgroundColor,
-        border: `2px solid ${borderColor}`,
+        border: `2px solid ${isFromOtherTrader ? '#f59e0b' : borderColor}`,
         color: textColor,
         cursor: isLocked ? 'not-allowed' : 'pointer',
-        opacity: isLocked ? 0.7 : 1,
-        boxShadow: selected ? '0 0 0 2px #3b82f6' : 'none',
+        opacity: isLocked ? 0.7 : isFromOtherTrader ? 0.95 : 1,
+        boxShadow: selected ? '0 0 0 2px #3b82f6' : isFromOtherTrader ? '0 0 0 1px #f59e0b' : 'none',
         transition: 'all 0.2s',
         position: 'relative',
         ...(isLocked && {

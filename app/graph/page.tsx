@@ -24,6 +24,7 @@ import { getLayoutedElements } from '@/lib/utils/questGraphLayout'
 import { getDoneQuestIds, toggleQuestDone, isQuestUnlocked } from '@/lib/utils/questProgress'
 import { QuestDetailModal } from '../components/QuestDetailModal'
 import { QuestNode } from '../components/QuestNode'
+import { Footer } from '../components/Footer'
 
 interface QuestData {
   tasks?: Task[]
@@ -124,7 +125,7 @@ function QuestGraphContent() {
       return
     }
 
-    const graphData = buildQuestGraph(traderQuests, doneQuestIds, playerLevel)
+    const graphData = buildQuestGraph(traderQuests, doneQuestIds, playerLevel, quests)
     
     // Validate all nodes have valid positions
     const validNodes = graphData.nodes.filter(node => {
@@ -196,9 +197,19 @@ function QuestGraphContent() {
             >
               <ArrowLeft size={16} />
             </Button>
-            <H1 size="$7" color="$color12">
-              Quest Graph
-            </H1>
+            <img
+              src="/logo.png"
+              alt="caca's Tarkov Tracker"
+              style={{ width: 32, height: 32, objectFit: 'contain' }}
+            />
+            <YStack gap="$0">
+              <H1 size="$7" color="$color12">
+                Quest Graph
+              </H1>
+              <Text fontSize="$1" color="$color9">
+                v0.1.0-beta
+              </Text>
+            </YStack>
           </XStack>
         </XStack>
 
@@ -299,6 +310,7 @@ function QuestGraphContent() {
           }}
         />
       )}
+      <Footer />
     </YStack>
   )
 }
