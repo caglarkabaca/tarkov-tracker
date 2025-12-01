@@ -170,6 +170,47 @@ vercel
 
 Make sure to add your environment variables in the Vercel dashboard.
 
+### Deploy with Docker
+
+The project includes a Dockerfile and docker-compose.yml for easy containerized deployment.
+
+#### Using Docker Compose
+
+1. Create a `.env` file in the root directory:
+```env
+MONGODB_URI=mongodb://localhost:27017
+MONGODB_DB_NAME=tarkovquest
+```
+
+2. Build and run with Docker Compose:
+```bash
+docker-compose up -d
+```
+
+The application will be available at `http://localhost:3000`
+
+#### Using Docker directly
+
+1. Build the Docker image:
+```bash
+docker build -t tarkov-quest .
+```
+
+2. Run the container:
+```bash
+docker run -p 3000:3000 \
+  -e MONGODB_URI="mongodb://your-mongodb-uri" \
+  -e MONGODB_DB_NAME="tarkovquest" \
+  tarkov-quest
+```
+
+#### Environment Variables for Docker
+
+Make sure to set these environment variables when running the container:
+
+- `MONGODB_URI` - MongoDB connection string (required)
+- `MONGODB_DB_NAME` - Database name (optional, defaults to "tarkovquest")
+
 ## 📝 License
 
 This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.

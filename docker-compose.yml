@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=${MONGODB_URI}
+      - MONGODB_DB_NAME=${MONGODB_DB_NAME:-tarkovquest}
+    restart: unless-stopped
+    networks:
+      - tarkov-quest-network
+
+networks:
+  tarkov-quest-network:
+    driver: bridge
+
