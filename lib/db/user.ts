@@ -23,6 +23,7 @@ export async function createUser(username: string, password: string): Promise<Us
     password, // Should be hashed before calling this
     playerLevel: 1,
     completedQuestIds: [],
+    isAdmin: false, // Default to false, can be updated later
     createdAt: now,
     updatedAt: now,
   }
@@ -70,6 +71,37 @@ export async function updateUserProgress(
       $set: {
         playerLevel: progress.playerLevel,
         completedQuestIds: progress.completedQuestIds,
+        updatedAt: new Date(),
+      },
+    }
+  )
+}
+
+/**
+ * Get all users (admin only)
+ */
+export async function getAllUsers(): Promise<User[]> {
+  const db = await getDatabase()
+  const collection = db.collection<User>(COLLECTION_NAME)
+  
+  return collection.find({}).sort({ createdAt: -1 }).toArray()
+}
+
+/**
+ * Update user admin status (admin only)
+ */
+export async function updateUserAdminStatus(
+  userId: string,
+  isAdmin: boolean
+): Promise<void> {
+  const db = await getDatabase()
+  const collection = db.collection<User>(COLLECTION_NAME)
+  
+  await collection.updateOne(
+    { _id: new ObjectId(userId) },
+    {
+      $set: {
+        isAdmin,
         updatedAt: new Date(),
       },
     }

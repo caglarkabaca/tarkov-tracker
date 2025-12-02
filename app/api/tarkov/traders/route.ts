@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { checkLastFetch, saveFetchedData, getCachedData } from '@/lib/db/tarkov'
 import { executeGraphQLQueryWithRetry } from '@/lib/graphql/client'
 import { TRADERS_QUERY } from '@/lib/graphql/queries'
+import { findUserById } from '@/lib/db/user'
 
 const QUERY_NAME = 'traders'
 
@@ -9,6 +10,31 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
     const force = searchParams.get('force') === 'true'
+
+    // If force fetch, check if user is admin
+    if (force) {
+      const userId = request.headers.get('x-user-id')
+      if (userId) {
+        const user = await findUserById(userId)
+        if (!user || !user.isAdmin) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: 'Only admins can force fetch data',
+            },
+            { status: 403 }
+          )
+        }
+      } else {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Authentication required for force fetch',
+          },
+          { status: 401 }
+        )
+      }
+    }
 
     // Check cache unless force refresh
     if (!force) {

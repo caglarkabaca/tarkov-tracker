@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Button, Card, H1, Text, XStack, YStack, Spinner, ScrollView, Input } from 'tamagui'
-import { RefreshCw, AlertCircle, Plus, Minus, Filter, Network } from 'lucide-react'
+import { RefreshCw, AlertCircle, Plus, Minus, Filter, Network, Shield } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { QuestCard } from './components/QuestCard'
 import { QuestDetailModal } from './components/QuestDetailModal'
@@ -405,6 +405,18 @@ export default function HomePage() {
                 <Text fontSize="$1">Graph</Text>
               </XStack>
             </Button>
+            {isAdmin && (
+              <Button
+                size="$2"
+                theme="yellow"
+                onPress={() => router.push('/admin')}
+              >
+                <XStack gap="$1" alignItems="center">
+                  <Shield size={14} />
+                  <Text fontSize="$1">Admin</Text>
+                </XStack>
+              </Button>
+            )}
             <UserAuth />
             {savingProgress && (
               <Text fontSize="$1" color="$color10">
