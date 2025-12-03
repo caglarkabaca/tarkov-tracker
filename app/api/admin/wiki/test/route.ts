@@ -48,6 +48,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Debug: Log objectives and guideSteps
+    console.log('[Test Wiki Scraper] Objectives:', result.objectives?.length || 0, result.objectives)
+    console.log('[Test Wiki Scraper] Guide Steps:', result.guideSteps?.length || 0, result.guideSteps)
+
     return NextResponse.json({
       success: true,
       result: {
@@ -63,8 +67,11 @@ export async function POST(request: NextRequest) {
         kappaRequired: result.kappaRequired,
         lightkeeperRequired: result.lightkeeperRequired,
         rewardsExp: result.rewardsExp,
-        rewardsRep: result.rewardsRep,
-        rewardsOther: result.rewardsOther,
+        rewardsRep: result.rewardsRep || [],
+        rewardsOther: result.rewardsOther || [],
+        questImage: result.questImage,
+        objectives: result.objectives || [],
+        guideSteps: result.guideSteps || [],
         lastScraped: result.lastScraped,
       },
     })

@@ -58,6 +58,7 @@ export interface Task {
       normalizedName?: string
     }>
   }>
+  guideSteps?: string[]
   startRewards?: {
     items?: Array<{
       item: {

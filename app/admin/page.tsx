@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button, Card, H1, Text, XStack, YStack, Spinner, ScrollView, Input } from 'tamagui'
-import { ArrowLeft, Shield, Users, TrendingUp, CheckCircle2, Clock, Database, RefreshCw, AlertCircle, Globe } from 'lucide-react'
+import { ArrowLeft, Shield, Users, TrendingUp, CheckCircle2, Clock, Database, RefreshCw, AlertCircle, Globe, Download } from 'lucide-react'
 import { Footer } from '../components/Footer'
 
 interface User {
@@ -49,6 +49,7 @@ export default function AdminPage() {
   const [loadingDataStatus, setLoadingDataStatus] = useState(false)
   const [fetchingStatus, setFetchingStatus] = useState<Record<string, boolean>>({})
   const [wikiScraping, setWikiScraping] = useState(false)
+  const [missingScraping, setMissingScraping] = useState(false)
   const [wikiStatus, setWikiStatus] = useState<{
     total: number
     lastScraped: string | null
@@ -67,9 +68,79 @@ export default function AdminPage() {
   const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null)
   const [testWikiUrl, setTestWikiUrl] = useState('')
   const [testingWiki, setTestingWiki] = useState(false)
-  const [testResult, setTestResult] = useState<string | null>(null)
+  const [testResult, setTestResult] = useState<any | null>(null)
+  const [showTestResultRaw, setShowTestResultRaw] = useState(false)
   const [loadingQuestList, setLoadingQuestList] = useState(false)
   const [questListResult, setQuestListResult] = useState<Array<{ name: string; wikiUrl: string; trader?: string }> | null>(null)
+  const logScrollViewRef = useRef<any>(null)
+  const [questStatus, setQuestStatus] = useState<{
+    lastFetched: Date | null
+    hoursSinceLastFetch: number | null
+    totalCount: number | null
+    progress?: {
+      jobId?: string
+      currentIndex?: number
+      totalQuests?: number
+      lastScrapedQuest?: string
+      updatedAt?: Date
+    }
+    cacheExists: boolean
+    tasksCount: number
+  } | null>(null)
+  const [loadingQuestStatus, setLoadingQuestStatus] = useState(false)
+  const [downloadingImages, setDownloadingImages] = useState(false)
+  const [fetchingRawWiki, setFetchingRawWiki] = useState(false)
+  const [rawWikiStatus, setRawWikiStatus] = useState<{
+    total: number
+    oldestFetched?: Date
+    newestFetched?: Date
+    lastScraped?: Date
+  } | null>(null)
+  const [loadingRawWikiStatus, setLoadingRawWikiStatus] = useState(false)
+
+  // Auto-scroll log viewer to bottom when new logs arrive
+  useEffect(() => {
+    if (logScrollViewRef.current && logEntries.length > 0) {
+      // Small delay to ensure DOM is updated
+      setTimeout(() => {
+        try {
+          // Try multiple methods to scroll to bottom
+          const scrollElement = logScrollViewRef.current
+          
+          // Method 1: Try native scroll ref
+          const nativeRef = scrollElement?.getNativeScrollRef?.()
+          if (nativeRef) {
+            nativeRef.scrollTop = nativeRef.scrollHeight
+            return
+          }
+          
+          // Method 2: Try scrollRef
+          const scrollRef = scrollElement?.scrollRef?.current
+          if (scrollRef) {
+            scrollRef.scrollTop = scrollRef.scrollHeight
+            return
+          }
+          
+          // Method 3: Find the scrollable container in DOM
+          const scrollContainer = document.querySelector('[data-log-scroll-container]')
+          if (scrollContainer) {
+            scrollContainer.scrollTop = scrollContainer.scrollHeight
+            return
+          }
+          
+          // Method 4: Use scrollIntoView on last log entry
+          const lastLogIndex = logEntries.length - 1
+          const lastLogElement = document.querySelector(`[data-log-index="${lastLogIndex}"]`)
+          if (lastLogElement) {
+            lastLogElement.scrollIntoView({ behavior: 'smooth', block: 'end' })
+          }
+        } catch (err) {
+          // Ignore scroll errors
+          console.log('Auto-scroll error (non-critical):', err)
+        }
+      }, 150)
+    }
+  }, [logEntries])
 
   useEffect(() => {
     const userId = localStorage.getItem('userId')
@@ -81,6 +152,8 @@ export default function AdminPage() {
     fetchUsers(userId)
     fetchDataStatus(userId)
     fetchWikiStatus(userId)
+    fetchQuestStatus(userId)
+    fetchRawWikiStatus(userId)
     
     // Cleanup polling interval on unmount
     return () => {
@@ -188,15 +261,13 @@ export default function AdminPage() {
     setError(null)
 
     try {
-      let url: string
-      if (queryName === 'quests') {
-        url = `/api/tarkov/fetch?queryName=quests&force=true`
-      } else if (queryName === 'traders') {
-        url = `/api/tarkov/traders?force=true`
-      } else {
+      // Only traders can be fetched from tarkov-api now
+      if (queryName !== 'traders') {
         setError('Unknown data type')
         return
       }
+
+      const url = `/api/tarkov/traders?force=true`
 
       const response = await fetch(url, {
         method: 'GET',
@@ -247,6 +318,40 @@ export default function AdminPage() {
     }
   }
 
+  const fetchQuestStatus = async (userId: string) => {
+    setLoadingQuestStatus(true)
+    try {
+      const response = await fetch('/api/admin/quests/status', {
+        headers: {
+          'x-user-id': userId,
+        },
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.success && data.status) {
+        setQuestStatus({
+          lastFetched: data.status.lastFetched ? new Date(data.status.lastFetched) : null,
+          hoursSinceLastFetch: data.status.hoursSinceLastFetch || null,
+          totalCount: data.status.totalCount || null,
+          progress: data.status.progress ? {
+            jobId: data.status.progress.jobId,
+            currentIndex: data.status.progress.currentIndex,
+            totalQuests: data.status.progress.totalQuests,
+            lastScrapedQuest: data.status.progress.lastScrapedQuest,
+            updatedAt: data.status.progress.updatedAt ? new Date(data.status.progress.updatedAt) : undefined,
+          } : undefined,
+          cacheExists: data.status.cacheExists || false,
+          tasksCount: data.status.tasksCount || 0,
+        })
+      }
+    } catch (err) {
+      console.error('Error fetching quest status:', err)
+    } finally {
+      setLoadingQuestStatus(false)
+    }
+  }
+
   const scrapeWiki = async () => {
     const userId = localStorage.getItem('userId')
     if (!userId) {
@@ -254,7 +359,7 @@ export default function AdminPage() {
       return
     }
 
-    if (!confirm('This will scrape wiki data for all quests. This may take a long time. Continue?')) {
+    if (!confirm('This will scrape all quests from wiki and save them to MongoDB. This may take a long time. Continue?')) {
       return
     }
 
@@ -263,7 +368,7 @@ export default function AdminPage() {
     setLogEntries([])
 
     try {
-      const response = await fetch('/api/admin/wiki/scrape', {
+      const response = await fetch('/api/admin/wiki/scrape-full', {
         method: 'POST',
         headers: {
           'x-user-id': userId,
@@ -274,6 +379,7 @@ export default function AdminPage() {
 
       if (!response.ok || !data.success) {
         setError(data.error || 'Failed to scrape wiki')
+        setWikiScraping(false)
         return
       }
 
@@ -286,6 +392,152 @@ export default function AdminPage() {
       setError(err instanceof Error ? err.message : 'Unknown error occurred')
       console.error('Error scraping wiki:', err)
       setWikiScraping(false)
+    }
+  }
+
+  const scrapeMissingQuests = async () => {
+    const userId = localStorage.getItem('userId')
+    if (!userId) {
+      setError('Not authenticated')
+      return
+    }
+
+    if (!confirm('This will scrape only missing quests from wiki that are not already in the database. Continue?')) {
+      return
+    }
+
+    setMissingScraping(true)
+    setError(null)
+    setLogEntries([])
+
+    try {
+      const response = await fetch('/api/admin/wiki/scrape-missing', {
+        method: 'POST',
+        headers: {
+          'x-user-id': userId,
+        },
+      })
+
+      const data = await response.json()
+
+      if (!response.ok || !data.success) {
+        setError(data.error || 'Failed to scrape missing quests')
+        setMissingScraping(false)
+        return
+      }
+
+      // Start polling for logs
+      if (data.jobId) {
+        setCurrentJobId(data.jobId)
+        startLogPolling(data.jobId, userId)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error occurred')
+      console.error('Error scraping missing quests:', err)
+      setMissingScraping(false)
+    }
+  }
+
+  const downloadImages = async () => {
+    const userId = localStorage.getItem('userId')
+    if (!userId) {
+      setError('Not authenticated')
+      return
+    }
+
+    if (!confirm('This will download all quest images from wiki_quests and save them as base64. This may take a long time. Continue?')) {
+      return
+    }
+
+    setDownloadingImages(true)
+    setError(null)
+
+    try {
+      const response = await fetch('/api/admin/wiki/images/download', {
+        method: 'POST',
+        headers: {
+          'x-user-id': userId,
+        },
+      })
+
+      const data = await response.json()
+
+      if (!response.ok || !data.success) {
+        setError(data.error || 'Failed to download images')
+        setDownloadingImages(false)
+        return
+      }
+
+      alert(`Image download completed: ${data.downloaded}/${data.total} images downloaded successfully!${data.failed > 0 ? ` (${data.failed} failed)` : ''}`)
+      setDownloadingImages(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error occurred')
+      console.error('Error downloading images:', err)
+      setDownloadingImages(false)
+    }
+  }
+
+  const fetchRawWikiStatus = async (userId: string) => {
+    setLoadingRawWikiStatus(true)
+    try {
+      const response = await fetch('/api/admin/wiki/raw/status', {
+        headers: {
+          'x-user-id': userId,
+        },
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success && data.status) {
+          setRawWikiStatus(data.status)
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching raw wiki status:', err)
+    } finally {
+      setLoadingRawWikiStatus(false)
+    }
+  }
+
+  const fetchRawWikiQuests = async () => {
+    const userId = localStorage.getItem('userId')
+    if (!userId) {
+      setError('Not authenticated')
+      return
+    }
+
+    if (!confirm('This will fetch all quest pages from the wiki and save raw HTML to raw_wiki_quests collection. This may take a long time. Continue?')) {
+      return
+    }
+
+    setFetchingRawWiki(true)
+    setError(null)
+
+    try {
+      const response = await fetch('/api/admin/wiki/raw/fetch', {
+        method: 'POST',
+        headers: {
+          'x-user-id': userId,
+        },
+      })
+
+      const data = await response.json()
+
+      if (!response.ok || !data.success) {
+        setError(data.error || 'Failed to fetch raw wiki quests')
+        setFetchingRawWiki(false)
+        return
+      }
+
+      alert(`Raw wiki fetch completed: ${data.fetched}/${data.total} pages fetched successfully!${data.failed > 0 ? ` (${data.failed} failed)` : ''}`)
+      setFetchingRawWiki(false)
+      
+      // Refresh status
+      await fetchRawWikiStatus(userId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error occurred')
+      console.error('Error fetching raw wiki quests:', err)
+      setFetchingRawWiki(false)
     }
   }
 
@@ -326,6 +578,9 @@ export default function AdminPage() {
         }))
         setLogEntries(logs)
 
+        // Update quest status while polling
+        await fetchQuestStatus(userId)
+        
         // Stop polling if job is completed or failed
         if (data.job.status === 'completed' || data.job.status === 'failed') {
           if (pollingInterval) {
@@ -333,10 +588,12 @@ export default function AdminPage() {
             setPollingInterval(null)
           }
           setWikiScraping(false)
+          setMissingScraping(false)
           setCurrentJobId(null)
           
-          // Refresh wiki status
+          // Refresh wiki status and quest status
           await fetchWikiStatus(userId)
+          await fetchQuestStatus(userId)
           
           if (data.job.status === 'completed') {
             alert(`Scraping completed: ${data.job.successfulQuests || 0}/${data.job.totalQuests || 0} quests scraped successfully!`)
@@ -400,113 +657,178 @@ export default function AdminPage() {
   }
 
   return (
-    <YStack fullscreen backgroundColor="$background" padding="$2" gap="$2">
-      <YStack gap="$2" maxWidth={1800} width="100%" marginHorizontal="auto">
+    <YStack fullscreen backgroundColor="$background" padding="$4" gap="$4">
+      <YStack gap="$4" maxWidth={1800} width="100%" marginHorizontal="auto">
         {/* Header */}
-        <XStack gap="$2" alignItems="center" justifyContent="space-between" flexWrap="wrap">
-          <XStack gap="$2" alignItems="center">
+        <Card elevate size="$4" bordered padding="$4" backgroundColor="$background">
+          <XStack gap="$4" alignItems="center" justifyContent="space-between" flexWrap="wrap">
+            <XStack gap="$3" alignItems="center">
+              <Button
+                size="$3"
+                theme="gray"
+                circular
+                onPress={() => router.push('/')}
+              >
+                <ArrowLeft size={18} />
+              </Button>
+              <YStack gap="$1" paddingLeft="$2">
+                <XStack gap="$2" alignItems="center">
+                  <Shield size={28} color="var(--color-yellow-10)" />
+                  <H1 size="$8" color="$color12" fontWeight="800">
+                    Admin Panel
+                  </H1>
+                </XStack>
+                <Text fontSize="$2" color="$color10" paddingLeft="$8">
+                  System Management & Monitoring
+                </Text>
+              </YStack>
+            </XStack>
+            
             <Button
-              size="$2"
-              theme="gray"
-              onPress={() => router.push('/')}
+              size="$3"
+              theme="blue"
+              onPress={() => {
+                const userId = localStorage.getItem('userId') || ''
+                fetchUsers(userId)
+                fetchDataStatus(userId)
+                fetchWikiStatus(userId)
+                fetchQuestStatus(userId)
+              }}
             >
-              <ArrowLeft size={16} />
+              <XStack gap="$2" alignItems="center">
+                <RefreshCw size={16} />
+                <Text fontSize="$2" fontWeight="600">Refresh All</Text>
+              </XStack>
             </Button>
-            <Shield size={24} color="var(--color-yellow-10)" />
-            <YStack gap="$0">
-              <H1 size="$7" color="$color12">
-                Admin Panel
-              </H1>
-              <Text fontSize="$1" color="$color9">
-                User Management
-              </Text>
-            </YStack>
           </XStack>
-          
-          <Button
-            size="$2"
-            theme="blue"
-            onPress={() => {
-              const userId = localStorage.getItem('userId') || ''
-              fetchUsers(userId)
-              fetchDataStatus(userId)
-            }}
-          >
-            <Text fontSize="$1">Refresh All</Text>
-          </Button>
-        </XStack>
+        </Card>
 
         {/* Statistics Cards */}
-        <XStack gap="$2" flexWrap="wrap">
-          <Card elevate size="$3" bordered padding="$3" backgroundColor="$background" flex={1} minWidth={200}>
-            <YStack gap="$1">
+        <XStack gap="$3" flexWrap="wrap">
+          <Card 
+            elevate 
+            size="$4" 
+            bordered 
+            padding="$4" 
+            backgroundColor="$blue2" 
+            borderColor="$blue8"
+            flex={1} 
+            minWidth={220}
+            hoverStyle={{ scale: 1.02 }}
+          >
+            <YStack gap="$2">
               <XStack gap="$2" alignItems="center">
-                <Users size={20} color="var(--color-blue-10)" />
-                <Text fontSize="$3" fontWeight="600" color="$color12">
+                <Card size="$2" bordered padding="$2" backgroundColor="$blue4" borderRadius="$3">
+                  <Users size={22} color="var(--color-blue-10)" />
+                </Card>
+                <Text fontSize="$3" fontWeight="700" color="$color12">
                   Total Users
                 </Text>
               </XStack>
-              <Text fontSize="$6" fontWeight="bold" color="$blue10">
+              <Text fontSize="$8" fontWeight="900" color="$blue10" paddingLeft="$2">
                 {totalUsers}
               </Text>
             </YStack>
           </Card>
 
-          <Card elevate size="$3" bordered padding="$3" backgroundColor="$background" flex={1} minWidth={200}>
-            <YStack gap="$1">
+          <Card 
+            elevate 
+            size="$4" 
+            bordered 
+            padding="$4" 
+            backgroundColor="$yellow2" 
+            borderColor="$yellow8"
+            flex={1} 
+            minWidth={220}
+            hoverStyle={{ scale: 1.02 }}
+          >
+            <YStack gap="$2">
               <XStack gap="$2" alignItems="center">
-                <Shield size={20} color="var(--color-yellow-10)" />
-                <Text fontSize="$3" fontWeight="600" color="$color12">
+                <Card size="$2" bordered padding="$2" backgroundColor="$yellow4" borderRadius="$3">
+                  <Shield size={22} color="var(--color-yellow-10)" />
+                </Card>
+                <Text fontSize="$3" fontWeight="700" color="$color12">
                   Admins
                 </Text>
               </XStack>
-              <Text fontSize="$6" fontWeight="bold" color="$yellow10">
+              <Text fontSize="$8" fontWeight="900" color="$yellow10" paddingLeft="$2">
                 {totalAdmins}
               </Text>
             </YStack>
           </Card>
 
-          <Card elevate size="$3" bordered padding="$3" backgroundColor="$background" flex={1} minWidth={200}>
-            <YStack gap="$1">
+          <Card 
+            elevate 
+            size="$4" 
+            bordered 
+            padding="$4" 
+            backgroundColor="$green2" 
+            borderColor="$green8"
+            flex={1} 
+            minWidth={220}
+            hoverStyle={{ scale: 1.02 }}
+          >
+            <YStack gap="$2">
               <XStack gap="$2" alignItems="center">
-                <TrendingUp size={20} color="var(--color-green-10)" />
-                <Text fontSize="$3" fontWeight="600" color="$color12">
+                <Card size="$2" bordered padding="$2" backgroundColor="$green4" borderRadius="$3">
+                  <TrendingUp size={22} color="var(--color-green-10)" />
+                </Card>
+                <Text fontSize="$3" fontWeight="700" color="$color12">
                   Avg Level
                 </Text>
               </XStack>
-              <Text fontSize="$6" fontWeight="bold" color="$green10">
+              <Text fontSize="$8" fontWeight="900" color="$green10" paddingLeft="$2">
                 {avgLevel}
               </Text>
             </YStack>
           </Card>
 
-          <Card elevate size="$3" bordered padding="$3" backgroundColor="$background" flex={1} minWidth={200}>
-            <YStack gap="$1">
+          <Card 
+            elevate 
+            size="$4" 
+            bordered 
+            padding="$4" 
+            backgroundColor="$purple2" 
+            borderColor="$purple8"
+            flex={1} 
+            minWidth={220}
+            hoverStyle={{ scale: 1.02 }}
+          >
+            <YStack gap="$2">
               <XStack gap="$2" alignItems="center">
-                <CheckCircle2 size={20} color="var(--color-purple-10)" />
-                <Text fontSize="$3" fontWeight="600" color="$color12">
-                  Total Completed
+                <Card size="$2" bordered padding="$2" backgroundColor="$purple4" borderRadius="$3">
+                  <CheckCircle2 size={22} color="var(--color-purple-10)" />
+                </Card>
+                <Text fontSize="$3" fontWeight="700" color="$color12">
+                  Completed Quests
                 </Text>
               </XStack>
-              <Text fontSize="$6" fontWeight="bold" color="$purple10">
+              <Text fontSize="$8" fontWeight="900" color="$purple10" paddingLeft="$2">
                 {totalCompletedQuests}
               </Text>
             </YStack>
           </Card>
         </XStack>
 
-        {/* Data Status */}
-        <Card elevate size="$4" bordered padding="$3" backgroundColor="$background">
+        {/* Traders Data Status */}
+        <Card elevate size="$4" bordered padding="$4" backgroundColor="$background" borderColor="$blue8">
           <YStack gap="$3">
-            <XStack gap="$2" alignItems="center" justifyContent="space-between">
-              <XStack gap="$2" alignItems="center">
-                <Database size={20} color="var(--color-blue-10)" />
-                <Text fontSize="$4" fontWeight="600" color="$color12">
-                  Data Status
-                </Text>
+            <XStack gap="$3" alignItems="center" justifyContent="space-between">
+              <XStack gap="$3" alignItems="center">
+                <Card size="$2" bordered padding="$2" backgroundColor="$blue4" borderRadius="$3">
+                  <Database size={24} color="var(--color-blue-10)" />
+                </Card>
+                <YStack gap="$1">
+                  <Text fontSize="$5" fontWeight="800" color="$color12">
+                    Traders Data
+                  </Text>
+                  <Text fontSize="$2" color="$color10">
+                    Tarkov-API trader information
+                  </Text>
+                </YStack>
               </XStack>
               <Button
-                size="$2"
+                size="$3"
                 theme="blue"
                 onPress={() => fetchDataStatus(localStorage.getItem('userId') || '')}
                 disabled={loadingDataStatus}
@@ -514,107 +836,122 @@ export default function AdminPage() {
                 {loadingDataStatus ? (
                   <Spinner size="small" />
                 ) : (
-                  <RefreshCw size={14} />
+                  <XStack gap="$2" alignItems="center">
+                    <RefreshCw size={16} />
+                    <Text fontSize="$2">Refresh</Text>
+                  </XStack>
                 )}
               </Button>
             </XStack>
 
             {loadingDataStatus ? (
-              <Card size="$2" bordered padding="$4" backgroundColor="$gray2" alignItems="center">
-                <Spinner size="small" />
-                <Text fontSize="$2" color="$color10" marginTop="$2">
-                  Loading data status...
+              <Card size="$3" bordered padding="$4" backgroundColor="$gray2" alignItems="center" borderRadius="$4">
+                <Spinner size="large" />
+                <Text fontSize="$3" color="$color10" marginTop="$3">
+                  Loading traders data status...
                 </Text>
               </Card>
             ) : dataStatuses.length === 0 ? (
-              <Card size="$2" bordered padding="$4" backgroundColor="$gray2" alignItems="center">
-                <Text fontSize="$2" color="$color10">
-                  No data status available.
+              <Card size="$3" bordered padding="$4" backgroundColor="$gray2" alignItems="center" borderRadius="$4">
+                <AlertCircle size={20} color="var(--color-gray-10)" />
+                <Text fontSize="$3" color="$color10" marginTop="$2">
+                  No traders data status available.
                 </Text>
               </Card>
             ) : (
-              <XStack gap="$2" flexWrap="wrap">
+              <XStack gap="$3" flexWrap="wrap">
                 {dataStatuses.map((status) => (
                   <Card
                     key={status.queryName}
-                    size="$3"
+                    size="$4"
                     bordered
-                    padding="$3"
-                    backgroundColor={status.cacheValid ? "$green2" : "$red2"}
-                    borderColor={status.cacheValid ? "$green8" : "$red8"}
+                    padding="$4"
+                    backgroundColor={status.cacheValid ? "$green2" : "$orange2"}
+                    borderColor={status.cacheValid ? "$green8" : "$orange8"}
                     flex={1}
-                    minWidth={300}
+                    minWidth={350}
+                    borderRadius="$4"
+                    hoverStyle={{ scale: 1.02 }}
                   >
-                    <YStack gap="$2">
-                      <XStack gap="$2" alignItems="center" justifyContent="space-between">
-                        <Text fontSize="$3" fontWeight="600" color="$color12">
-                          {status.dataType}
-                        </Text>
-                        <XStack gap="$2" alignItems="center">
-                          {status.cacheValid ? (
-                            <XStack
-                              gap="$1"
-                              alignItems="center"
-                              paddingHorizontal="$2"
-                              paddingVertical="$1"
-                              backgroundColor="$green4"
-                              borderRadius="$2"
-                            >
-                              <CheckCircle2 size={12} color="var(--color-green-10)" />
-                              <Text fontSize="$1" color="$green10" fontWeight="600">
-                                Valid
-                              </Text>
+                    <YStack gap="$3">
+                      <XStack gap="$3" alignItems="center" justifyContent="space-between" flexWrap="wrap">
+                        <YStack gap="$1">
+                          <Text fontSize="$4" fontWeight="700" color="$color12">
+                            {status.dataType}
+                          </Text>
+                          <XStack gap="$2" alignItems="center">
+                            {status.cacheValid ? (
+                              <XStack
+                                gap="$1.5"
+                                alignItems="center"
+                                paddingHorizontal="$3"
+                                paddingVertical="$1.5"
+                                backgroundColor="$green4"
+                                borderRadius="$3"
+                              >
+                                <CheckCircle2 size={14} color="var(--color-green-10)" />
+                                <Text fontSize="$2" color="$green10" fontWeight="700">
+                                  Valid
+                                </Text>
+                              </XStack>
+                            ) : (
+                              <XStack
+                                gap="$1.5"
+                                alignItems="center"
+                                paddingHorizontal="$3"
+                                paddingVertical="$1.5"
+                                backgroundColor="$orange4"
+                                borderRadius="$3"
+                              >
+                                <AlertCircle size={14} color="var(--color-orange-10)" />
+                                <Text fontSize="$2" color="$orange10" fontWeight="700">
+                                  Expired
+                                </Text>
+                              </XStack>
+                            )}
+                          </XStack>
+                        </YStack>
+                        <Button
+                          size="$3"
+                          theme={status.cacheValid ? "blue" : "orange"}
+                          onPress={() => forceFetchData(status.queryName)}
+                          disabled={fetchingStatus[status.queryName]}
+                        >
+                          {fetchingStatus[status.queryName] ? (
+                            <XStack gap="$2" alignItems="center">
+                              <Spinner size="small" />
+                              <Text fontSize="$2">Fetching...</Text>
                             </XStack>
                           ) : (
-                            <XStack
-                              gap="$1"
-                              alignItems="center"
-                              paddingHorizontal="$2"
-                              paddingVertical="$1"
-                              backgroundColor="$red4"
-                              borderRadius="$2"
-                            >
-                              <AlertCircle size={12} color="var(--color-red-10)" />
-                              <Text fontSize="$1" color="$red10" fontWeight="600">
-                                Expired
-                              </Text>
+                            <XStack gap="$2" alignItems="center">
+                              <RefreshCw size={16} />
+                              <Text fontSize="$2" fontWeight="600">Force Fetch</Text>
                             </XStack>
                           )}
-                          <Button
-                            size="$1"
-                            theme="orange"
-                            onPress={() => forceFetchData(status.queryName)}
-                            disabled={fetchingStatus[status.queryName]}
-                          >
-                            {fetchingStatus[status.queryName] ? (
-                              <Spinner size="small" />
-                            ) : (
-                              <RefreshCw size={12} />
-                            )}
-                          </Button>
-                        </XStack>
+                        </Button>
                       </XStack>
 
-                      <YStack gap="$1" marginTop="$2">
+                      <YStack gap="$2" marginTop="$2" paddingTop="$3" borderTopWidth={1} borderTopColor="$borderColor">
                         <XStack gap="$2" alignItems="center">
-                          <Database size={14} color="var(--color-9)" />
-                          <Text fontSize="$2" color="$color10">
-                            Count: <Text fontWeight="600" color="$color12">{status.dataCount}</Text>
+                          <Database size={16} color="var(--color-9)" />
+                          <Text fontSize="$3" color="$color10">
+                            Count: <Text fontWeight="700" color="$color12" fontSize="$4">{status.dataCount}</Text>
                           </Text>
                         </XStack>
 
                         {status.lastFetched ? (
-                          <>
+                          <YStack gap="$1">
                             <XStack gap="$2" alignItems="center">
-                              <Clock size={14} color="var(--color-9)" />
+                              <Clock size={16} color="var(--color-9)" />
                               <Text fontSize="$2" color="$color10">
-                                Last Updated: <Text fontWeight="600" color="$color12">
-                                  {formatDate(status.lastFetched)}
-                                </Text>
+                                Last Updated:
+                              </Text>
+                              <Text fontSize="$2" fontWeight="600" color="$color12">
+                                {formatDate(status.lastFetched)}
                               </Text>
                             </XStack>
                             {status.hoursSinceLastFetch !== null && (
-                              <Text fontSize="$1" color="$color9">
+                              <Text fontSize="$1" color="$color9" paddingLeft="$6">
                                 {status.hoursSinceLastFetch < 1
                                   ? `${Math.round(status.hoursSinceLastFetch * 60)} minutes ago`
                                   : status.hoursSinceLastFetch < 24
@@ -622,10 +959,10 @@ export default function AdminPage() {
                                   : `${Math.round(status.hoursSinceLastFetch / 24)} days ago`}
                               </Text>
                             )}
-                          </>
+                          </YStack>
                         ) : (
                           <XStack gap="$2" alignItems="center">
-                            <AlertCircle size={14} color="var(--color-9)" />
+                            <AlertCircle size={16} color="var(--color-9)" />
                             <Text fontSize="$2" color="$color10">
                               Never updated
                             </Text>
@@ -640,38 +977,175 @@ export default function AdminPage() {
           </YStack>
         </Card>
 
-        {/* Wiki Scraping */}
-        <Card elevate size="$4" bordered padding="$3" backgroundColor="$background">
+        {/* Quests Status */}
+        <Card elevate size="$4" bordered padding="$4" backgroundColor="$background" borderColor="$green8">
           <YStack gap="$3">
-            <XStack gap="$2" alignItems="center" justifyContent="space-between">
-              <XStack gap="$2" alignItems="center">
-                <Globe size={20} color="var(--color-blue-10)" />
-                <Text fontSize="$4" fontWeight="600" color="$color12">
-                  Wiki Data Scraping
-                </Text>
+            <XStack gap="$3" alignItems="center" justifyContent="space-between">
+              <XStack gap="$3" alignItems="center">
+                <Card size="$2" bordered padding="$2" backgroundColor="$green4" borderRadius="$3">
+                  <Database size={24} color="var(--color-green-10)" />
+                </Card>
+                <YStack gap="$1">
+                  <Text fontSize="$5" fontWeight="800" color="$color12">
+                    Wiki Quests
+                  </Text>
+                  <Text fontSize="$2" color="$color10">
+                    Quest data from Escape from Tarkov Wiki
+                  </Text>
+                </YStack>
               </XStack>
               <Button
-                size="$2"
-                theme="blue"
+                size="$3"
+                theme="green"
+                onPress={() => fetchQuestStatus(localStorage.getItem('userId') || '')}
+                disabled={loadingQuestStatus}
+              >
+                {loadingQuestStatus ? (
+                  <Spinner size="small" />
+                ) : (
+                  <XStack gap="$2" alignItems="center">
+                    <RefreshCw size={16} />
+                    <Text fontSize="$2">Refresh</Text>
+                  </XStack>
+                )}
+              </Button>
+            </XStack>
+
+            {loadingQuestStatus ? (
+              <Card size="$2" bordered padding="$4" backgroundColor="$gray2" alignItems="center">
+                <Spinner size="small" />
+                <Text fontSize="$2" color="$color10" marginTop="$2">
+                  Loading quest status...
+                </Text>
+              </Card>
+            ) : questStatus ? (
+              <YStack gap="$2">
+                <XStack gap="$4" flexWrap="wrap">
+                  <YStack>
+                    <Text fontSize="$1" color="$color10">Total Quests</Text>
+                    <Text fontSize="$4" fontWeight="bold" color="$green10">
+                      {questStatus.tasksCount || 0}
+                    </Text>
+                  </YStack>
+                  {questStatus.lastFetched && (
+                    <YStack>
+                      <Text fontSize="$1" color="$color10">Last Updated</Text>
+                      <Text fontSize="$2" color="$color12">
+                        {formatDate(questStatus.lastFetched.toISOString())}
+                      </Text>
+                      {questStatus.hoursSinceLastFetch !== null && (
+                        <Text fontSize="$1" color="$color9">
+                          {questStatus.hoursSinceLastFetch < 1
+                            ? `${Math.round(questStatus.hoursSinceLastFetch * 60)} minutes ago`
+                            : questStatus.hoursSinceLastFetch < 24
+                            ? `${Math.round(questStatus.hoursSinceLastFetch)} hours ago`
+                            : `${Math.round(questStatus.hoursSinceLastFetch / 24)} days ago`}
+                        </Text>
+                      )}
+                    </YStack>
+                  )}
+                  {questStatus.progress && questStatus.progress.totalQuests && (
+                    <YStack>
+                      <Text fontSize="$1" color="$color10">Scraping Progress</Text>
+                      <Text fontSize="$4" fontWeight="bold" color="$blue10">
+                        {questStatus.progress.currentIndex || 0}/{questStatus.progress.totalQuests}
+                      </Text>
+                      <Text fontSize="$1" color="$color9">
+                        {questStatus.progress.lastScrapedQuest || 'Starting...'}
+                      </Text>
+                    </YStack>
+                  )}
+                </XStack>
+                {questStatus.progress && questStatus.progress.totalQuests && (
+                  <Card size="$2" bordered padding="$3" backgroundColor="$blue2">
+                    <YStack gap="$2">
+                      <XStack gap="$2" alignItems="center">
+                        <Clock size={14} color="var(--color-blue-10)" />
+                        <Text fontSize="$2" fontWeight="600" color="$blue10">
+                          Active Scraping
+                        </Text>
+                      </XStack>
+                      <Text fontSize="$1" color="$color11">
+                        Currently scraping quest {questStatus.progress.currentIndex || 0} of {questStatus.progress.totalQuests}
+                      </Text>
+                      {questStatus.progress.lastScrapedQuest && (
+                        <Text fontSize="$1" color="$color10">
+                          Last scraped: {questStatus.progress.lastScrapedQuest}
+                        </Text>
+                      )}
+                      {questStatus.progress.updatedAt && (
+                        <Text fontSize="$1" color="$color9">
+                          Updated: {formatDate(questStatus.progress.updatedAt.toISOString())}
+                        </Text>
+                      )}
+                    </YStack>
+                  </Card>
+                )}
+                {!questStatus.cacheExists && (
+                  <Card size="$2" bordered padding="$3" backgroundColor="$orange2">
+                    <XStack gap="$2" alignItems="center">
+                      <AlertCircle size={14} color="var(--color-orange-10)" />
+                      <Text fontSize="$2" color="$orange10">
+                        No quest data found. Please start scraping quests from wiki.
+                      </Text>
+                    </XStack>
+                  </Card>
+                )}
+              </YStack>
+            ) : (
+              <Card size="$2" bordered padding="$4" backgroundColor="$gray2" alignItems="center">
+                <Text fontSize="$2" color="$color10">
+                  No quest status available
+                </Text>
+              </Card>
+            )}
+          </YStack>
+        </Card>
+
+        {/* Wiki Scraping */}
+        <Card elevate size="$4" bordered padding="$4" backgroundColor="$background" borderColor="$purple8">
+          <YStack gap="$3">
+            <XStack gap="$3" alignItems="center" justifyContent="space-between">
+              <XStack gap="$3" alignItems="center">
+                <Card size="$2" bordered padding="$2" backgroundColor="$purple4" borderRadius="$3">
+                  <Globe size={24} color="var(--color-purple-10)" />
+                </Card>
+                <YStack gap="$1">
+                  <Text fontSize="$5" fontWeight="800" color="$color12">
+                    Wiki Data Scraping
+                  </Text>
+                  <Text fontSize="$2" color="$color10">
+                    Scrape and update quest data from wiki
+                  </Text>
+                </YStack>
+              </XStack>
+              <Button
+                size="$3"
+                theme="purple"
                 onPress={() => fetchWikiStatus(localStorage.getItem('userId') || '')}
                 disabled={loadingWikiStatus}
               >
                 {loadingWikiStatus ? (
                   <Spinner size="small" />
                 ) : (
-                  <RefreshCw size={14} />
+                  <XStack gap="$2" alignItems="center">
+                    <RefreshCw size={16} />
+                    <Text fontSize="$2">Refresh</Text>
+                  </XStack>
                 )}
               </Button>
             </XStack>
 
-            {loadingWikiStatus ? (
+            {loadingWikiStatus && (
               <Card size="$2" bordered padding="$4" backgroundColor="$gray2" alignItems="center">
                 <Spinner size="small" />
                 <Text fontSize="$2" color="$color10" marginTop="$2">
                   Loading wiki status...
                 </Text>
               </Card>
-            ) : (
+            )}
+
+            {!loadingWikiStatus && (
               <YStack gap="$2">
                 {wikiStatus && (
                   <XStack gap="$4" flexWrap="wrap">
@@ -700,31 +1174,171 @@ export default function AdminPage() {
                   </XStack>
                 )}
 
+                <XStack gap="$2" flexWrap="wrap">
+                  <Button
+                    size="$3"
+                    theme="orange"
+                    onPress={scrapeWiki}
+                    disabled={wikiScraping || missingScraping}
+                  >
+                    {wikiScraping ? (
+                      <XStack gap="$2" alignItems="center">
+                        <Spinner size="small" />
+                        <Text fontSize="$2">Scraping Wiki...</Text>
+                      </XStack>
+                    ) : (
+                      <XStack gap="$2" alignItems="center">
+                        <Globe size={16} />
+                        <Text fontSize="$2">Scrape Quest Data from Wiki</Text>
+                      </XStack>
+                    )}
+                  </Button>
+
+                  <Button
+                    size="$3"
+                    theme="blue"
+                    onPress={scrapeMissingQuests}
+                    disabled={wikiScraping || missingScraping}
+                  >
+                    {missingScraping ? (
+                      <XStack gap="$2" alignItems="center">
+                        <Spinner size="small" />
+                        <Text fontSize="$2">Scraping Missing...</Text>
+                      </XStack>
+                    ) : (
+                      <XStack gap="$2" alignItems="center">
+                        <Globe size={16} />
+                        <Text fontSize="$2">Scrape Missing Quests</Text>
+                      </XStack>
+                    )}
+                  </Button>
+
+                  <Button
+                    size="$3"
+                    theme="green"
+                    onPress={downloadImages}
+                    disabled={wikiScraping || missingScraping || downloadingImages}
+                  >
+                    {downloadingImages ? (
+                      <XStack gap="$2" alignItems="center">
+                        <Spinner size="small" />
+                        <Text fontSize="$2">Downloading Images...</Text>
+                      </XStack>
+                    ) : (
+                      <XStack gap="$2" alignItems="center">
+                        <Download size={16} />
+                        <Text fontSize="$2">Download Quest Images</Text>
+                      </XStack>
+                    )}
+                  </Button>
+                </XStack>
+
+                <Text fontSize="$1" color="$color9">
+                  "Scrape Quest Data from Wiki" will scrape all quest pages from the Escape from Tarkov wiki, extract all quest data, 
+                  convert to Task format, and save to MongoDB. Only wiki scraping logs will be shown. 
+                  This process may take a long time.
+                </Text>
+                <Text fontSize="$1" color="$color9">
+                  "Scrape Missing Quests" will only scrape quests that are not already in the database, making it faster for updates.
+                </Text>
+                <Text fontSize="$1" color="$color9">
+                  "Download Quest Images" will download all quest images from wiki_quests collection and save them as base64 in wiki_images collection for offline use.
+                </Text>
+              </YStack>
+            )}
+
+            {/* Raw Wiki Quest Data */}
+            <Card size="$4" bordered padding="$4" backgroundColor="$gray2">
+              <XStack gap="$4" alignItems="center" justifyContent="space-between" flexWrap="wrap">
+                <YStack gap="$1">
+                  <Text fontSize="$5" fontWeight="800" color="$color12">
+                    Raw Wiki Quest Data
+                  </Text>
+                  <Text fontSize="$2" color="$color10">
+                    Fetch and store raw HTML from wiki pages
+                  </Text>
+                </YStack>
                 <Button
                   size="$3"
-                  theme="orange"
-                  onPress={scrapeWiki}
-                  disabled={wikiScraping}
+                  theme="green"
+                  onPress={() => fetchRawWikiStatus(localStorage.getItem('userId') || '')}
+                  disabled={loadingRawWikiStatus}
                 >
-                  {wikiScraping ? (
-                    <XStack gap="$2" alignItems="center">
-                      <Spinner size="small" />
-                      <Text fontSize="$2">Scraping Wiki...</Text>
-                    </XStack>
+                  {loadingRawWikiStatus ? (
+                    <Spinner size="small" />
                   ) : (
                     <XStack gap="$2" alignItems="center">
-                      <Globe size={16} />
-                      <Text fontSize="$2">Scrape Quest Data from Wiki</Text>
+                      <RefreshCw size={16} />
+                      <Text fontSize="$2">Refresh</Text>
                     </XStack>
                   )}
                 </Button>
+              </XStack>
 
-                <Text fontSize="$1" color="$color9">
-                  This will scrape all quest pages from the Escape from Tarkov wiki to extract prerequisites, 
-                  level requirements, and quest relationships. This process may take a long time.
-                </Text>
+              {loadingRawWikiStatus ? (
+                <Card size="$2" bordered padding="$4" backgroundColor="$gray2" alignItems="center" marginTop="$2">
+                  <Spinner size="small" />
+                  <Text fontSize="$2" color="$color10" marginTop="$2">
+                    Loading raw wiki status...
+                  </Text>
+                </Card>
+              ) : (
+                <YStack gap="$2" marginTop="$2">
+                  {rawWikiStatus && (
+                    <XStack gap="$4" flexWrap="wrap">
+                      <YStack>
+                        <Text fontSize="$1" color="$color10">Total Raw Pages</Text>
+                        <Text fontSize="$4" fontWeight="bold" color="$blue10">
+                          {rawWikiStatus.total || 0}
+                        </Text>
+                      </YStack>
+                      {rawWikiStatus.newestFetched && (
+                        <YStack>
+                          <Text fontSize="$1" color="$color10">Newest Fetched</Text>
+                          <Text fontSize="$2" color="$color12">
+                            {formatDate(rawWikiStatus.newestFetched.toISOString())}
+                          </Text>
+                        </YStack>
+                      )}
+                      {rawWikiStatus.oldestFetched && (
+                        <YStack>
+                          <Text fontSize="$1" color="$color10">Oldest Fetched</Text>
+                          <Text fontSize="$2" color="$color12">
+                            {formatDate(rawWikiStatus.oldestFetched.toISOString())}
+                          </Text>
+                        </YStack>
+                      )}
+                    </XStack>
+                  )}
 
-                {/* Test Single Wiki URL */}
+                  <Button
+                    size="$3"
+                    theme="purple"
+                    onPress={fetchRawWikiQuests}
+                    disabled={fetchingRawWiki || wikiScraping || missingScraping}
+                  >
+                    {fetchingRawWiki ? (
+                      <XStack gap="$2" alignItems="center">
+                        <Spinner size="small" />
+                        <Text fontSize="$2">Fetching Raw Wiki...</Text>
+                      </XStack>
+                    ) : (
+                      <XStack gap="$2" alignItems="center">
+                        <Database size={16} />
+                        <Text fontSize="$2">Fetch Raw Wiki Quest Pages</Text>
+                      </XStack>
+                    )}
+                  </Button>
+
+                  <Text fontSize="$1" color="$color9">
+                    "Fetch Raw Wiki Quest Pages" will download all quest pages from the wiki as raw HTML and save them to the raw_wiki_quests collection. 
+                    This allows you to scrape the data later without making repeated requests to the wiki. This process may take a long time.
+                  </Text>
+                </YStack>
+              )}
+            </Card>
+
+            {/* Test Single Wiki URL */}
                 <Card size="$2" bordered padding="$3" backgroundColor="$gray2">
                   <YStack gap="$2">
                     <Text fontSize="$3" fontWeight="600" color="$color12">
@@ -751,11 +1365,12 @@ export default function AdminPage() {
                           if (!testWikiUrl) return
                           setTestingWiki(true)
                           setTestResult(null)
+                          setShowTestResultRaw(false)
                           
                           try {
                             const userId = localStorage.getItem('userId')
                             if (!userId) {
-                              setTestResult('Error: Not authenticated')
+                              setTestResult({ error: 'Not authenticated' })
                               setTestingWiki(false)
                               return
                             }
@@ -771,12 +1386,12 @@ export default function AdminPage() {
                             
                             const data = await response.json()
                             if (data.success) {
-                              setTestResult(JSON.stringify(data.result, null, 2))
+                              setTestResult(data.result)
                             } else {
-                              setTestResult(`Error: ${data.error || 'Unknown error'}`)
+                              setTestResult({ error: data.error || 'Unknown error' })
                             }
                           } catch (error) {
-                            setTestResult(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+                            setTestResult({ error: error instanceof Error ? error.message : 'Unknown error' })
                           } finally {
                             setTestingWiki(false)
                           }
@@ -793,11 +1408,297 @@ export default function AdminPage() {
                     
                     {testResult && (
                       <Card size="$2" bordered padding="$3" backgroundColor="#1a1a1a">
-                        <ScrollView maxHeight={300}>
-                          <Text fontSize="$1" color="#00ff00" fontFamily="monospace" whiteSpace="pre-wrap">
-                            {testResult}
-                          </Text>
-                        </ScrollView>
+                        <YStack gap="$2">
+                          <XStack gap="$2" alignItems="center" justifyContent="space-between">
+                            <Text fontSize="$2" fontWeight="600" color="#00ff00" fontFamily="monospace">
+                              Scraping Result
+                            </Text>
+                            <Button
+                              size="$1"
+                              theme="gray"
+                              onPress={() => setShowTestResultRaw(!showTestResultRaw)}
+                            >
+                              <Text fontSize="$1">
+                                {showTestResultRaw ? 'Show Formatted' : 'Show Raw JSON'}
+                              </Text>
+                            </Button>
+                          </XStack>
+                          
+                          {testResult.error ? (
+                            <Card size="$2" bordered padding="$3" backgroundColor="$red2">
+                              <Text fontSize="$2" color="$red10">
+                                Error: {testResult.error}
+                              </Text>
+                            </Card>
+                          ) : showTestResultRaw ? (
+                            <ScrollView maxHeight={500}>
+                              <Text fontSize="$1" color="#00ff00" fontFamily="monospace" whiteSpace="pre-wrap">
+                                {JSON.stringify(testResult, null, 2)}
+                              </Text>
+                            </ScrollView>
+                          ) : (
+                            <ScrollView maxHeight={500}>
+                              <YStack gap="$3" padding="$2">
+                                {/* Basic Info */}
+                                <YStack gap="$2">
+                                  <Text fontSize="$2" fontWeight="600" color="#00ff00" fontFamily="monospace">
+                                    Quest Information
+                                  </Text>
+                                  <Card size="$2" bordered padding="$2" backgroundColor="#0a0a0a">
+                                    <YStack gap="$1">
+                                      <XStack gap="$2">
+                                        <Text fontSize="$1" color="#888" fontFamily="monospace" minWidth={120}>
+                                          Quest Name:
+                                        </Text>
+                                        <Text fontSize="$1" color="#fff" fontFamily="monospace" flex={1}>
+                                          {testResult.questName || 'N/A'}
+                                        </Text>
+                                      </XStack>
+                                      <XStack gap="$2">
+                                        <Text fontSize="$1" color="#888" fontFamily="monospace" minWidth={120}>
+                                          Wiki URL:
+                                        </Text>
+                                        <Text fontSize="$1" color="#88aaff" fontFamily="monospace" flex={1} style={{ wordBreak: 'break-all' }}>
+                                          {testResult.wikiUrl || 'N/A'}
+                                        </Text>
+                                      </XStack>
+                                      <XStack gap="$2">
+                                        <Text fontSize="$1" color="#888" fontFamily="monospace" minWidth={120}>
+                                          Location:
+                                        </Text>
+                                        <Text fontSize="$1" color="#fff" fontFamily="monospace" flex={1}>
+                                          {testResult.location || 'N/A'}
+                                        </Text>
+                                      </XStack>
+                                      <XStack gap="$2">
+                                        <Text fontSize="$1" color="#888" fontFamily="monospace" minWidth={120}>
+                                          Given By:
+                                        </Text>
+                                        <Text fontSize="$1" color="#fff" fontFamily="monospace" flex={1}>
+                                          {testResult.givenBy || 'N/A'}
+                                        </Text>
+                                      </XStack>
+                                      <XStack gap="$2">
+                                        <Text fontSize="$1" color="#888" fontFamily="monospace" minWidth={120}>
+                                          Min Level:
+                                        </Text>
+                                        <Text fontSize="$1" color={testResult.minPlayerLevel ? "#00ff00" : "#888"} fontFamily="monospace" flex={1}>
+                                          {testResult.minPlayerLevel || 'N/A'}
+                                        </Text>
+                                      </XStack>
+                                      <XStack gap="$2">
+                                        <Text fontSize="$1" color="#888" fontFamily="monospace" minWidth={120}>
+                                          Kappa Required:
+                                        </Text>
+                                        <Text fontSize="$1" color={testResult.kappaRequired ? "#ffaa00" : "#888"} fontFamily="monospace" flex={1}>
+                                          {testResult.kappaRequired ? 'Yes' : testResult.kappaRequired === false ? 'No' : 'N/A'}
+                                        </Text>
+                                      </XStack>
+                                    </YStack>
+                                  </Card>
+                                </YStack>
+
+                                {/* Quest Relationships */}
+                                {(testResult.previousQuests?.length > 0 || testResult.leadsToQuests?.length > 0) && (
+                                  <YStack gap="$2">
+                                    <Text fontSize="$2" fontWeight="600" color="#00ff00" fontFamily="monospace">
+                                      Quest Relationships
+                                    </Text>
+                                    <Card size="$2" bordered padding="$2" backgroundColor="#0a0a0a">
+                                      <YStack gap="$2">
+                                        {testResult.previousQuests?.length > 0 && (
+                                          <YStack gap="$1">
+                                            <Text fontSize="$1" color="#ff6666" fontFamily="monospace" fontWeight="600">
+                                              Previous Quests ({testResult.previousQuests.length}):
+                                            </Text>
+                                            {testResult.previousQuests.map((q: string, idx: number) => (
+                                              <Text key={idx} fontSize="$1" color="#ff8888" fontFamily="monospace" paddingLeft="$2">
+                                                • {q}
+                                              </Text>
+                                            ))}
+                                          </YStack>
+                                        )}
+                                        {testResult.leadsToQuests?.length > 0 && (
+                                          <YStack gap="$1">
+                                            <Text fontSize="$1" color="#66ff66" fontFamily="monospace" fontWeight="600">
+                                              Leads To Quests ({testResult.leadsToQuests.length}):
+                                            </Text>
+                                            {testResult.leadsToQuests.map((q: string, idx: number) => (
+                                              <Text key={idx} fontSize="$1" color="#88ff88" fontFamily="monospace" paddingLeft="$2">
+                                                • {q}
+                                              </Text>
+                                            ))}
+                                          </YStack>
+                                        )}
+                                      </YStack>
+                                    </Card>
+                                  </YStack>
+                                )}
+
+                                {/* Objectives */}
+                                {(testResult.objectives !== undefined && testResult.objectives !== null) && (
+                                  <YStack gap="$2">
+                                    <Text fontSize="$2" fontWeight="600" color="#00ff00" fontFamily="monospace">
+                                      Objectives ({testResult.objectives?.length || 0})
+                                    </Text>
+                                    <Card size="$2" bordered padding="$2" backgroundColor="#0a0a0a">
+                                      {testResult.objectives && testResult.objectives.length > 0 ? (
+                                        <YStack gap="$2">
+                                          {testResult.objectives.map((obj: any, idx: number) => (
+                                            <Card key={idx} size="$1" bordered padding="$2" backgroundColor={obj.optional ? "#2a2a1a" : "#1a1a1a"}>
+                                              <YStack gap="$1">
+                                                <XStack gap="$2" alignItems="center">
+                                                  <Text fontSize="$1" color="#888" fontFamily="monospace" minWidth={60}>
+                                                    #{idx + 1}
+                                                  </Text>
+                                                  <Text fontSize="$1" color={obj.optional ? "#ffaa00" : "#00ff00"} fontFamily="monospace" fontWeight="600">
+                                                    {obj.type || 'Objective'}
+                                                  </Text>
+                                                  {obj.optional && (
+                                                    <Text fontSize="$1" color="#ffaa00" fontFamily="monospace">
+                                                      (Optional)
+                                                    </Text>
+                                                  )}
+                                                </XStack>
+                                                <Text fontSize="$1" color="#ccc" fontFamily="monospace" paddingLeft="$7">
+                                                  {obj.description || 'No description'}
+                                                </Text>
+                                                {obj.maps && obj.maps.length > 0 && (
+                                                  <XStack gap="$1" paddingLeft="$7" flexWrap="wrap">
+                                                    {obj.maps.map((map: string, mapIdx: number) => (
+                                                      <Text key={mapIdx} fontSize="$1" color="#8888ff" fontFamily="monospace">
+                                                        {map}{mapIdx < obj.maps.length - 1 ? ',' : ''}
+                                                      </Text>
+                                                    ))}
+                                                  </XStack>
+                                                )}
+                                              </YStack>
+                                            </Card>
+                                          ))}
+                                        </YStack>
+                                      ) : (
+                                        <Text fontSize="$1" color="#888" fontFamily="monospace">
+                                          No objectives found (may not exist on this page)
+                                        </Text>
+                                      )}
+                                    </Card>
+                                  </YStack>
+                                )}
+
+                                {/* Guide Steps */}
+                                {(testResult.guideSteps !== undefined && testResult.guideSteps !== null) && (
+                                  <YStack gap="$2">
+                                    <Text fontSize="$2" fontWeight="600" color="#00ff00" fontFamily="monospace">
+                                      Guide Steps ({testResult.guideSteps?.length || 0})
+                                    </Text>
+                                    <Card size="$2" bordered padding="$2" backgroundColor="#0a0a0a">
+                                      {testResult.guideSteps && testResult.guideSteps.length > 0 ? (
+                                        <YStack gap="$1">
+                                          {testResult.guideSteps.map((step: string, idx: number) => (
+                                            <XStack key={idx} gap="$2">
+                                              <Text fontSize="$1" color="#888" fontFamily="monospace" minWidth={30}>
+                                                {idx + 1}.
+                                              </Text>
+                                              <Text fontSize="$1" color="#ccc" fontFamily="monospace" flex={1}>
+                                                {step}
+                                              </Text>
+                                            </XStack>
+                                          ))}
+                                        </YStack>
+                                      ) : (
+                                        <Text fontSize="$1" color="#888" fontFamily="monospace">
+                                          No guide steps found (may not exist on this page)
+                                        </Text>
+                                      )}
+                                    </Card>
+                                  </YStack>
+                                )}
+
+                                {/* Rewards */}
+                                {(testResult.rewardsExp || testResult.rewardsRep?.length > 0 || testResult.rewardsOther?.length > 0) && (
+                                  <YStack gap="$2">
+                                    <Text fontSize="$2" fontWeight="600" color="#00ff00" fontFamily="monospace">
+                                      Rewards
+                                    </Text>
+                                    <Card size="$2" bordered padding="$2" backgroundColor="#0a0a0a">
+                                      <YStack gap="$1">
+                                        {testResult.rewardsExp && (
+                                          <XStack gap="$2">
+                                            <Text fontSize="$1" color="#888" fontFamily="monospace" minWidth={120}>
+                                              Experience:
+                                            </Text>
+                                            <Text fontSize="$1" color="#00ff00" fontFamily="monospace">
+                                              +{testResult.rewardsExp.toLocaleString()} EXP
+                                            </Text>
+                                          </XStack>
+                                        )}
+                                        {testResult.rewardsRep?.length > 0 && (
+                                          <YStack gap="$1">
+                                            <Text fontSize="$1" color="#888" fontFamily="monospace">
+                                              Reputation:
+                                            </Text>
+                                            {testResult.rewardsRep.map((rep: any, idx: number) => (
+                                              <XStack key={idx} gap="$2" paddingLeft="$4">
+                                                <Text fontSize="$1" color="#ccc" fontFamily="monospace">
+                                                  {rep.trader}:
+                                                </Text>
+                                                <Text fontSize="$1" color={rep.amount >= 0 ? "#00ff00" : "#ff6666"} fontFamily="monospace">
+                                                  {rep.amount >= 0 ? '+' : ''}{rep.amount}
+                                                </Text>
+                                              </XStack>
+                                            ))}
+                                          </YStack>
+                                        )}
+                                        {testResult.rewardsOther?.length > 0 && (
+                                          <YStack gap="$1">
+                                            <Text fontSize="$1" color="#888" fontFamily="monospace">
+                                              Other Rewards:
+                                            </Text>
+                                            {testResult.rewardsOther.map((reward: string, idx: number) => (
+                                              <Text key={idx} fontSize="$1" color="#ccc" fontFamily="monospace" paddingLeft="$4">
+                                                • {reward}
+                                              </Text>
+                                            ))}
+                                          </YStack>
+                                        )}
+                                      </YStack>
+                                    </Card>
+                                  </YStack>
+                                )}
+
+                                {/* Quest Image */}
+                                {testResult.questImage && (
+                                  <YStack gap="$2">
+                                    <Text fontSize="$2" fontWeight="600" color="#00ff00" fontFamily="monospace">
+                                      Quest Image
+                                    </Text>
+                                    <Card size="$2" bordered padding="$2" backgroundColor="#0a0a0a">
+                                      <YStack gap="$1">
+                                        <Text fontSize="$1" color="#888" fontFamily="monospace" style={{ wordBreak: 'break-all' }}>
+                                          {testResult.questImage}
+                                        </Text>
+                                      </YStack>
+                                    </Card>
+                                  </YStack>
+                                )}
+
+                                {/* Requirements */}
+                                {testResult.requirements && (
+                                  <YStack gap="$2">
+                                    <Text fontSize="$2" fontWeight="600" color="#00ff00" fontFamily="monospace">
+                                      Requirements
+                                    </Text>
+                                    <Card size="$2" bordered padding="$2" backgroundColor="#0a0a0a">
+                                      <Text fontSize="$1" color="#ccc" fontFamily="monospace" whiteSpace="pre-wrap">
+                                        {testResult.requirements}
+                                      </Text>
+                                    </Card>
+                                  </YStack>
+                                )}
+                              </YStack>
+                            </ScrollView>
+                          )}
+                        </YStack>
                       </Card>
                     )}
                   </YStack>
@@ -914,7 +1815,7 @@ export default function AdminPage() {
                           Job: {currentJobId.substring(0, 8)}...
                         </Text>
                       </XStack>
-                      <ScrollView maxHeight={350}>
+                      <ScrollView ref={logScrollViewRef} maxHeight={350}>
                         <YStack gap="$1" padding="$2">
                           {logEntries.map((log, index) => {
                             const timeStr = new Date(log.timestamp).toLocaleTimeString('en-US', {
@@ -933,7 +1834,7 @@ export default function AdminPage() {
                             const details = log.details as any
                             
                             return (
-                              <YStack key={index} gap="$1" paddingBottom="$2" borderBottomWidth={1} borderBottomColor="#333">
+                              <YStack key={index} data-log-index={index === logEntries.length - 1} gap="$1" paddingBottom="$2" borderBottomWidth={1} borderBottomColor="#333">
                                 <XStack gap="$2" alignItems="flex-start">
                                   <Text fontSize="$1" color="#666" fontFamily="monospace" minWidth={80}>
                                     [{timeStr}]
@@ -1027,16 +1928,24 @@ export default function AdminPage() {
                   </Card>
                 )}
               </YStack>
-            )}
-          </YStack>
         </Card>
 
         {/* Users List */}
-        <Card elevate size="$4" bordered padding="$3" backgroundColor="$background">
+        <Card elevate size="$4" bordered padding="$4" backgroundColor="$background" borderColor="$yellow8">
           <YStack gap="$3">
-            <Text fontSize="$4" fontWeight="600" color="$color12">
-              All Users ({totalUsers})
-            </Text>
+            <XStack gap="$3" alignItems="center">
+              <Card size="$2" bordered padding="$2" backgroundColor="$yellow4" borderRadius="$3">
+                <Users size={24} color="var(--color-yellow-10)" />
+              </Card>
+              <YStack gap="$1">
+                <Text fontSize="$5" fontWeight="800" color="$color12">
+                  All Users
+                </Text>
+                <Text fontSize="$2" color="$color10">
+                  {totalUsers} registered user{totalUsers !== 1 ? 's' : ''}
+                </Text>
+              </YStack>
+            </XStack>
             
             {users.length === 0 ? (
               <Card size="$2" bordered padding="$4" backgroundColor="$gray2" alignItems="center">

@@ -35,34 +35,69 @@ export function QuestCard({ quest, playerLevel, isDone, isUnlocked, onToggleDone
       onPress={onPress}
     >
       <YStack gap="$1.5" flex={1}>
-        {/* Image and Checkbox */}
-        <XStack gap="$2" alignItems="flex-start" justifyContent="space-between">
-          {quest.taskImageLink && (
-            <Card
-              size="$1"
-              bordered
-              overflow="hidden"
-              width={60}
-              height={60}
-              cursor="pointer"
-              pressStyle={{ scale: 0.9 }}
-              onPress={(e) => {
-                e.stopPropagation()
-                quest.wikiLink && window.open(quest.wikiLink, '_blank')
+        {/* Quest Image */}
+        {quest.taskImageLink && (
+          <Card
+            size="$1"
+            bordered
+            overflow="hidden"
+            width="100%"
+            cursor="pointer"
+            pressStyle={{ scale: 0.98 }}
+            onPress={(e) => {
+              e.stopPropagation()
+              quest.wikiLink && window.open(quest.wikiLink, '_blank')
+            }}
+            style={{
+              aspectRatio: '16 / 9',
+              minHeight: '120px',
+            }}
+          >
+            <img
+              src={quest.taskImageLink}
+              alt={quest.name}
+              style={{ 
+                width: '100%', 
+                height: '100%', 
+                objectFit: 'cover',
+                display: 'block',
               }}
-            >
-              <img
-                src={quest.taskImageLink}
-                alt={quest.name}
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              />
-            </Card>
-          )}
+              onError={(e) => {
+                // Hide image if it fails to load
+                const target = e.target as HTMLImageElement
+                target.style.display = 'none'
+              }}
+              loading="lazy"
+            />
+          </Card>
+        )}
+
+        {/* Header with Title and Checkbox */}
+        <XStack gap="$2" alignItems="flex-start" justifyContent="space-between">
+          <YStack gap="$1" flex={1} minWidth={0}>
+            <Text fontSize="$2" fontWeight="600" color="$color12" numberOfLines={2}>
+              {quest.name}
+            </Text>
+            
+            <XStack gap="$1" alignItems="center" flexWrap="wrap">
+              {quest.trader && (
+                <Text fontSize="$1" color="$color10">
+                  {quest.trader.name}
+                </Text>
+              )}
+              {quest.map && (
+                <Text fontSize="$1" color="$color10">
+                  {quest.map.name}
+                </Text>
+              )}
+            </XStack>
+          </YStack>
           
           <Button
             size="$2"
             circular
             chromeless
+            flexShrink={0}
             onPress={(e) => {
               e.stopPropagation()
               onToggleDone()
@@ -80,23 +115,6 @@ export function QuestCard({ quest, playerLevel, isDone, isUnlocked, onToggleDone
 
         {/* Quest Info */}
         <YStack gap="$1" flex={1}>
-          <Text fontSize="$2" fontWeight="600" color="$color12" numberOfLines={2}>
-            {quest.name}
-          </Text>
-          
-          <XStack gap="$1" alignItems="center" flexWrap="wrap">
-            {quest.trader && (
-              <Text fontSize="$1" color="$color10">
-                {quest.trader.name}
-              </Text>
-            )}
-            {quest.map && (
-              <Text fontSize="$1" color="$color10">
-                {quest.map.name}
-              </Text>
-            )}
-          </XStack>
-
           <XStack gap="$1" alignItems="center" flexWrap="wrap">
             {quest.minPlayerLevel && (
               <Text fontSize="$1" color={isAvailable ? '$green10' : '$orange10'} backgroundColor={isAvailable ? '$green3' : '$orange3'} paddingHorizontal="$1" paddingVertical="$0.5" borderRadius="$1">

@@ -129,8 +129,8 @@ async function scrapeQuestsWithLogging(
       })
     }
 
-    // Scrape with logging
-    const results = await scrapeQuestsFromWiki(questsToScrape, onLog, existingMap, apiDataMap)
+    // Scrape with logging, preferring raw_wiki_quests HTML where available
+    const results = await scrapeQuestsFromWiki(questsToScrape, onLog, existingMap, apiDataMap, true)
 
     // Convert to WikiQuestDocument format
     const wikiDocuments: WikiQuestDocument[] = results.map(data => ({

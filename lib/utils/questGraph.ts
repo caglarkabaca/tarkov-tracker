@@ -133,12 +133,18 @@ export function buildQuestGraph(quests: Task[], doneQuestIds: Set<string>, playe
   })
 
   // Find which quests are required by other quests (dependent quests)
+  // This includes prerequisites from ALL quests, not just current trader's
   const requiredByQuests = new Set<string>()
   finalQuests.forEach(quest => {
     if (quest.taskRequirements && quest.taskRequirements.length > 0) {
       quest.taskRequirements.forEach(req => {
-        if (req.task?.id && questMap.has(req.task.id)) {
-          requiredByQuests.add(req.task.id)
+        const prereqId = req.task?.id
+        if (prereqId) {
+          // Check if prerequisite exists in finalQuests (includes prerequisites from other traders)
+          const prereqExists = finalQuests.some(q => q.id === prereqId)
+          if (prereqExists) {
+            requiredByQuests.add(prereqId)
+          }
         }
       })
     }

@@ -59,6 +59,83 @@ function extractLevelFromRequirements(text: string): number | undefined {
 }
 
 /**
+ * Extract quest names from Requirements section that use "Accept <quest_name>" format
+ * Also extracts quest names mentioned in requirements text with links
+ */
+function extractQuestsFromRequirements(document: Document, requirementsText: string): string[] {
+  const questNames: string[] = []
+  
+  if (!requirementsText) return questNames
+  
+  // Pattern 1: "Accept <quest_name>" or "Accept the quest <quest_name>"
+  const acceptPatterns = [
+    /accept\s+(?:the\s+quest\s+)?(?:<[^>]+>)?([A-Z][a-zA-Z\s\-\']+(?:\s+[A-Z][a-zA-Z\s\-\']+)*)/gi,
+    /accept\s+([A-Z][a-zA-Z\s\-\']+(?:\s+[A-Z][a-zA-Z\s\-\']+)*)/gi,
+    /must\s+accept\s+(?:the\s+quest\s+)?([A-Z][a-zA-Z\s\-\']+(?:\s+[A-Z][a-zA-Z\s\-\']+)*)/gi,
+    /complete\s+(?:the\s+quest\s+)?([A-Z][a-zA-Z\s\-\']+(?:\s+[A-Z][a-zA-Z\s\-\']+)*)/gi,
+  ]
+  
+  for (const pattern of acceptPatterns) {
+    const matches = requirementsText.matchAll(pattern)
+    for (const match of matches) {
+      if (match[1]) {
+        const questName = match[1].trim()
+        // Filter out common false positives
+        if (questName.length > 3 && 
+            !questName.toLowerCase().includes('level') &&
+            !questName.toLowerCase().includes('reputation') &&
+            !questName.toLowerCase().includes('standing') &&
+            !questName.match(/^\d+$/)) {
+          questNames.push(questName)
+        }
+      }
+    }
+  }
+  
+  // Pattern 2: Extract quest links from Requirements section
+  const reqHeading = Array.from(document.querySelectorAll('h2, h3, dt')).find(
+    h => h.textContent?.toLowerCase().includes('requirements')
+  )
+  
+  if (reqHeading) {
+    let current: Element | null = reqHeading.nextElementSibling
+    
+    while (current) {
+      if (current.tagName.match(/^H[2-4]$/)) break
+      
+      // Find quest links in requirements section
+      const links = current.querySelectorAll('a[href*="/wiki/"]')
+      links.forEach(link => {
+        const href = link.getAttribute('href') || ''
+        const linkText = link.textContent?.trim() || ''
+        const wikiMatch = href.match(/\/wiki\/(.+?)(?:\?|$)/)
+        
+        if (wikiMatch) {
+          const questName = decodeURIComponent(wikiMatch[1].replace(/_/g, ' '))
+          if (questName && 
+              !questName.includes('Category:') && 
+              !questName.includes('File:') && 
+              !questName.includes('User:') &&
+              questName !== '-' &&
+              questName.length > 2) {
+            questNames.push(questName)
+          }
+        } else if (linkText && 
+                   linkText.length > 2 && 
+                   !linkText.toLowerCase().includes('category') &&
+                   !linkText.toLowerCase().includes('file')) {
+          questNames.push(linkText)
+        }
+      })
+      
+      current = current.nextElementSibling
+    }
+  }
+  
+  return [...new Set(questNames.filter(name => name && name.trim().length > 2))]
+}
+
+/**
  * Create FandomPersonalScraper schema for a quest page
  * This schema defines how to extract data from a quest page
  */
@@ -669,6 +746,483 @@ function extractLightkeeperRequiredFromInfobox(document: Document): boolean | un
 }
 
 /**
+ * Extract quest image from infobox mainimage
+ * Returns URL in format: https://static.wikia.nocookie.net/escapefromtarkov_gamepedia/images/.../revision/latest?cb=...
+ */
+function extractQuestImage(document: Document): string | undefined {
+  try {
+    // Look for infobox mainimage container
+    const mainImageContainer = document.querySelector('.va-infobox-mainimage')
+    if (!mainImageContainer) return undefined
+    
+    // Find the img tag within the mainimage container
+    const imgElement = mainImageContainer.querySelector('img')
+    if (!imgElement) return undefined
+    
+    // Try to get the full image URL from various attributes (prioritize data-src as it's usually the full URL)
+    let imageSrc = imgElement.getAttribute('data-src') ||
+                   imgElement.getAttribute('src') ||
+                   imgElement.getAttribute('data-original-src')
+    
+    if (!imageSrc) {
+      return undefined
+    }
+    
+    // Normalize the URL to the format: https://static.wikia.nocookie.net/escapefromtarkov_gamepedia/images/.../revision/latest?cb=...
+    
+    // If it's already in the correct format, return as is
+    if (imageSrc.includes('static.wikia.nocookie.net/escapefromtarkov_gamepedia/images/')) {
+      // Ensure it has /revision/latest
+      if (!imageSrc.includes('/revision/latest')) {
+        // Extract the base path and query params
+        const urlParts = imageSrc.split('?')
+        const basePath = urlParts[0]
+        const queryParams = urlParts[1] || ''
+        
+        // Add /revision/latest before query params
+        return `${basePath}/revision/latest${queryParams ? '?' + queryParams : ''}`
+      }
+      return imageSrc
+    }
+    
+    // If it's a relative URL starting with /wiki/images/
+    if (imageSrc.includes('/wiki/images/') || imageSrc.includes('/images/')) {
+      // Extract the image path
+      let imagePath = ''
+      if (imageSrc.includes('/wiki/images/')) {
+        imagePath = imageSrc.split('/wiki/images/')[1]?.split('?')[0] || ''
+      } else if (imageSrc.includes('/images/')) {
+        imagePath = imageSrc.split('/images/')[1]?.split('?')[0] || ''
+      }
+      
+      if (imagePath) {
+        // Remove /revision/latest if present
+        imagePath = imagePath.replace(/\/revision\/latest\/?$/, '').replace(/\/revision\/latest\//, '/')
+        
+        // Extract query params if any
+        const urlParts = imageSrc.split('?')
+        const queryParams = urlParts[1] || ''
+        
+        return `https://static.wikia.nocookie.net/escapefromtarkov_gamepedia/images/${imagePath}/revision/latest${queryParams ? '?' + queryParams : ''}`
+      }
+    }
+    
+    // If it's a data-image-key or data-image-name, construct URL
+    const imageKey = imgElement.getAttribute('data-image-key') || imgElement.getAttribute('data-image-name')
+    if (imageKey && !imageSrc.includes('http')) {
+      // Construct URL from image key
+      // Format: /images/[first char]/[first 2 chars]/[filename]
+      const firstChar = imageKey.charAt(0).toLowerCase()
+      const secondChar = imageKey.length > 1 ? imageKey.substring(0, 2).toLowerCase() : firstChar
+      return `https://static.wikia.nocookie.net/escapefromtarkov_gamepedia/images/${firstChar}/${secondChar}/${imageKey}/revision/latest`
+    }
+    
+    // If it's already an absolute HTTP(S) URL but not in the right format, try to convert
+    if (imageSrc.startsWith('http')) {
+      // If it's from wikia/fandom, try to extract the image path
+      const wikiaMatch = imageSrc.match(/\/images\/(.+?)(?:\?|$|\/revision)/)
+      if (wikiaMatch) {
+        const imagePath = wikiaMatch[1]
+        const queryMatch = imageSrc.match(/\?(.+)$/)
+        const queryParams = queryMatch ? queryMatch[1] : ''
+        
+        // Remove /revision/latest if present in path
+        const cleanPath = imagePath.replace(/\/revision\/latest\/?$/, '')
+        
+        return `https://static.wikia.nocookie.net/escapefromtarkov_gamepedia/images/${cleanPath}/revision/latest${queryParams ? '?' + queryParams : ''}`
+      }
+      
+      // Return as is if we can't convert it
+      return imageSrc
+    }
+    
+    // If relative URL, make it absolute
+    if (imageSrc.startsWith('/')) {
+      // Check if it contains image path
+      if (imageSrc.includes('/images/')) {
+        const match = imageSrc.match(/\/images\/(.+)/)
+        if (match) {
+          const imagePath = match[1].split('?')[0]
+          const queryParams = imageSrc.includes('?') ? imageSrc.split('?')[1] : ''
+          return `https://static.wikia.nocookie.net/escapefromtarkov_gamepedia/images/${imagePath}/revision/latest${queryParams ? '?' + queryParams : ''}`
+        }
+      }
+      return `https://escapefromtarkov.fandom.com${imageSrc}`
+    }
+    
+    // If protocol-relative, add https
+    if (imageSrc.startsWith('//')) {
+      return `https:${imageSrc}`
+    }
+    
+    return undefined
+  } catch (error) {
+    console.error('Error extracting quest image:', error)
+    return undefined
+  }
+}
+
+/**
+ * Extract Objectives from wiki page
+ * Looks for "Objectives" heading and extracts objective items below it
+ * This section is distinct from "Guide" and contains the quest objectives/tasks
+ */
+function extractObjectives(document: Document): Array<{
+  id: string
+  type: string
+  description?: string
+  optional?: boolean
+  maps?: string[]
+}> | undefined {
+  try {
+    const objectives: Array<{
+      id: string
+      type: string
+      description?: string
+      optional?: boolean
+      maps?: string[]
+    }> = []
+    
+    // Find all headings that contain "Objectives" (case-insensitive, but not "Requirements" or "Guide")
+    const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6, .mw-heading'))
+    
+    for (const heading of headings) {
+      const headingText = heading.textContent?.trim() || ''
+      const normalizedHeading = headingText.toLowerCase()
+      
+      // Check if this heading is exactly "Objectives" or contains it (but not "Requirements" or "Guide")
+      if (normalizedHeading === 'objectives' || 
+          (normalizedHeading.includes('objectives') && 
+           !normalizedHeading.includes('requirement') && 
+           !normalizedHeading.includes('guide'))) {
+        
+        // Find the section starting from this heading
+        let currentElement: Element | null = heading.nextElementSibling
+        const currentHeadingLevel = heading.tagName.match(/^H(\d)$/) 
+          ? parseInt(heading.tagName[1]) 
+          : 3 // Default to h3 if not a standard heading
+        let objectiveIndex = 0
+        let foundContent = false
+        
+        // Traverse siblings until we hit another heading of same or higher level, or find "Guide" section
+        while (currentElement) {
+          const tagName = currentElement.tagName.toUpperCase()
+          
+          // Stop if we hit another heading
+          if (['H1', 'H2', 'H3', 'H4', 'H5', 'H6'].includes(tagName)) {
+            const headingLevel = parseInt(tagName[1])
+            // If same or higher level heading, we've reached the end of this section
+            if (headingLevel <= currentHeadingLevel) {
+              const nextHeadingText = currentElement.textContent?.trim().toLowerCase() || ''
+              // Stop if next section is "Guide"
+              if (nextHeadingText.includes('guide') && !nextHeadingText.includes('objectives')) {
+                break
+              }
+              // Stop at same/higher level headings
+              if (headingLevel <= currentHeadingLevel) {
+                break
+              }
+            }
+          }
+          
+          // Look for list items (ul, ol)
+          if (tagName === 'UL' || tagName === 'OL') {
+            const listItems = currentElement.querySelectorAll('li')
+            for (const item of listItems) {
+              const text = item.textContent?.trim()
+              if (text && text.length > 0 && text !== '-') {
+                foundContent = true
+                
+                // Check if it's optional
+                const isOptional = text.toLowerCase().includes('(optional)') || 
+                                 text.toLowerCase().includes('[optional]') ||
+                                 text.toLowerCase().includes('optional:')
+                
+                // Extract maps from text
+                const maps: string[] = []
+                const mapNames = ['Ground Zero', 'Streets', 'Woods', 'Factory', 'Interchange', 
+                                 'Customs', 'Reserve', 'Lighthouse', 'Shoreline', 'Lab', 'The Lab']
+                for (const mapName of mapNames) {
+                  if (text.includes(mapName)) {
+                    maps.push(mapName)
+                  }
+                }
+                
+                // Clean the text (remove optional markers)
+                let cleanText = text
+                  .replace(/\(optional\)/gi, '')
+                  .replace(/\[optional\]/gi, '')
+                  .replace(/optional:/gi, '')
+                  .trim()
+                
+                // Extract type and description
+                let type = 'Objective'
+                let description = cleanText
+                
+                // Try to extract type from patterns like "Type: Description" or "Type. Description"
+                const colonMatch = cleanText.match(/^([^:]+):\s*(.+)$/)
+                if (colonMatch) {
+                  type = colonMatch[1].trim()
+                  description = colonMatch[2].trim()
+                } else {
+                  const dotMatch = cleanText.match(/^([^.]+)\.\s+(.+)$/)
+                  if (dotMatch && dotMatch[1].length < 50) {
+                    type = dotMatch[1].trim()
+                    description = dotMatch[2].trim()
+                  }
+                }
+                
+                objectives.push({
+                  id: `obj-${objectiveIndex++}`,
+                  type: type || 'Objective',
+                  description: description || cleanText,
+                  optional: isOptional,
+                  maps: maps.length > 0 ? maps : undefined,
+                })
+              }
+            }
+          } else if (tagName === 'DIV' || tagName === 'P') {
+            // Check if div/paragraph contains a list
+            const nestedList = currentElement.querySelector('ul, ol')
+            if (nestedList) {
+              const listItems = nestedList.querySelectorAll('li')
+              for (const item of listItems) {
+                const text = item.textContent?.trim()
+                if (text && text.length > 0 && text !== '-') {
+                  foundContent = true
+                  
+                  const isOptional = text.toLowerCase().includes('(optional)') || 
+                                   text.toLowerCase().includes('[optional]') ||
+                                   text.toLowerCase().includes('optional:')
+                  
+                  const maps: string[] = []
+                  const mapNames = ['Ground Zero', 'Streets', 'Woods', 'Factory', 'Interchange', 
+                                   'Customs', 'Reserve', 'Lighthouse', 'Shoreline', 'Lab', 'The Lab']
+                  for (const mapName of mapNames) {
+                    if (text.includes(mapName)) {
+                      maps.push(mapName)
+                    }
+                  }
+                  
+                  let cleanText = text
+                    .replace(/\(optional\)/gi, '')
+                    .replace(/\[optional\]/gi, '')
+                    .replace(/optional:/gi, '')
+                    .trim()
+                  
+                  let type = 'Objective'
+                  let description = cleanText
+                  
+                  const colonMatch = cleanText.match(/^([^:]+):\s*(.+)$/)
+                  if (colonMatch) {
+                    type = colonMatch[1].trim()
+                    description = colonMatch[2].trim()
+                  } else {
+                    const dotMatch = cleanText.match(/^([^.]+)\.\s+(.+)$/)
+                    if (dotMatch && dotMatch[1].length < 50) {
+                      type = dotMatch[1].trim()
+                      description = dotMatch[2].trim()
+                    }
+                  }
+                  
+                  objectives.push({
+                    id: `obj-${objectiveIndex++}`,
+                    type: type || 'Objective',
+                    description: description || cleanText,
+                    optional: isOptional,
+                    maps: maps.length > 0 ? maps : undefined,
+                  })
+                }
+              }
+            } else {
+              // Check if it's a plain text objective (numbered or bulleted in paragraph)
+              const text = currentElement.textContent?.trim()
+              if (text && text.length > 5 && 
+                  (text.match(/^\d+[\.\)]\s/) || text.match(/^[•\-\*]\s/) || text.match(/^[●○]\s/))) {
+                foundContent = true
+                
+                const isOptional = text.toLowerCase().includes('(optional)') || 
+                                 text.toLowerCase().includes('[optional]')
+                
+                let cleanText = text
+                  .replace(/^\d+[\.\)]\s+/, '')
+                  .replace(/^[•\-\*●○]\s+/, '')
+                  .replace(/\(optional\)/gi, '')
+                  .replace(/\[optional\]/gi, '')
+                  .trim()
+                
+                objectives.push({
+                  id: `obj-${objectiveIndex++}`,
+                  type: cleanText.split(':')[0]?.trim() || 'Objective',
+                  description: cleanText,
+                  optional: isOptional,
+                  maps: undefined,
+                })
+              }
+            }
+          }
+          
+          currentElement = currentElement.nextElementSibling
+        }
+        
+        // If we found objectives, return them
+        if (objectives.length > 0 || foundContent) {
+          return objectives.length > 0 ? objectives : undefined
+        }
+      }
+    }
+    
+    return undefined
+  } catch (error) {
+    console.error('Error extracting objectives:', error)
+    return undefined
+  }
+}
+
+/**
+ * Extract Guide section steps/items from wiki page
+ * Looks for "Guide" heading and extracts list items below it
+ * This section is distinct from "Objectives" and contains tips/how-to information
+ */
+function extractGuideSteps(document: Document): string[] | undefined {
+  try {
+    const guideSteps: string[] = []
+    
+    // Find all headings that contain "Guide" (case-insensitive, but not "Walkthrough" or "Objectives")
+    const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6, .mw-heading'))
+    
+    for (const heading of headings) {
+      const headingText = heading.textContent?.trim() || ''
+      const normalizedHeading = headingText.toLowerCase()
+      
+      // Check if this heading is exactly "Guide" or contains "Guide" (but not "Walkthrough" or "Objectives")
+      if (normalizedHeading === 'guide' || 
+          (normalizedHeading.includes('guide') && 
+           !normalizedHeading.includes('walkthrough') &&
+           !normalizedHeading.includes('objectives'))) {
+        
+        // Find the section starting from this heading
+        let currentElement: Element | null = heading.nextElementSibling
+        const currentHeadingLevel = heading.tagName.match(/^H(\d)$/) 
+          ? parseInt(heading.tagName[1]) 
+          : 3 // Default to h3 if not a standard heading
+        let foundContent = false
+        
+        // Traverse siblings until we hit another heading of same or higher level
+        while (currentElement) {
+          const tagName = currentElement.tagName.toUpperCase()
+          
+          // Stop if we hit another heading of same or higher level
+          if (['H1', 'H2', 'H3', 'H4', 'H5', 'H6'].includes(tagName)) {
+            const headingLevel = parseInt(tagName[1])
+            if (headingLevel <= currentHeadingLevel) {
+              break
+            }
+          }
+          
+          // Look for lists (ul, ol)
+          if (tagName === 'UL' || tagName === 'OL') {
+            const listItems = currentElement.querySelectorAll('li')
+            for (const item of listItems) {
+              const text = item.textContent?.trim()
+              if (text && text.length > 0 && text !== '-') {
+                foundContent = true
+                guideSteps.push(text)
+              }
+            }
+            // If we found a list with items, continue (there might be multiple lists or paragraphs)
+          } else if (tagName === 'DIV' || tagName === 'P') {
+            // Check if this div/paragraph contains a navbox - if so, stop processing
+            const elementClass = (currentElement as HTMLElement).className || ''
+            const hasNavbox = elementClass.includes('navbox') || 
+                             elementClass.includes('va-navbox') ||
+                             currentElement.querySelector('.navbox, .va-navbox, table.navbox, table.va-navbox')
+            
+            if (hasNavbox) {
+              // This contains a navigation box, stop processing guide steps
+              break
+            }
+            
+            // Check if it contains a list
+            const nestedList = currentElement.querySelector('ul, ol')
+            if (nestedList) {
+              const listItems = nestedList.querySelectorAll('li')
+              for (const item of listItems) {
+                const text = item.textContent?.trim()
+                if (text && text.length > 0 && text !== '-') {
+                  foundContent = true
+                  guideSteps.push(text)
+                }
+              }
+            } else {
+              // Check if it's a numbered step, bullet point, or informative paragraph
+              const text = currentElement.textContent?.trim()
+              if (text && text.length > 5) {
+                // Check for numbered/bulleted format
+                if (text.match(/^\d+[\.\)]\s/) || 
+                    text.match(/^[•\-\*]\s/) || 
+                    text.match(/^[●○]\s/) ||
+                    // Or if it's a substantial paragraph (guide content)
+                    (text.length > 20 && !text.toLowerCase().includes('objectives'))) {
+                  foundContent = true
+                  // Clean up numbered/bulleted prefixes
+                  const cleanText = text
+                    .replace(/^\d+[\.\)]\s+/, '')
+                    .replace(/^[•\-\*●○]\s+/, '')
+                    .trim()
+                  if (cleanText.length > 0) {
+                    guideSteps.push(cleanText)
+                  }
+                }
+              }
+            }
+          } else if (tagName === 'TABLE') {
+            // Check if this is a navbox table - if so, stop processing (we've reached navigation/content box)
+            const tableElement = currentElement as HTMLTableElement
+            const tableClass = tableElement.className || ''
+            if (tableClass.includes('navbox') || 
+                tableClass.includes('va-navbox') ||
+                tableElement.classList.contains('navbox') ||
+                tableElement.querySelector('.navbox, .va-navbox')) {
+              // This is a navigation box, stop processing guide steps
+              break
+            }
+            
+            // Sometimes guides have tables with tips/instructions (but not navboxes)
+            const rows = currentElement.querySelectorAll('tr')
+            for (const row of rows) {
+              const cells = row.querySelectorAll('td')
+              if (cells.length > 0) {
+                const text = Array.from(cells)
+                  .map(cell => cell.textContent?.trim())
+                  .filter(t => t && t.length > 0)
+                  .join(' - ')
+                if (text && text.length > 10) {
+                  foundContent = true
+                  guideSteps.push(text)
+                }
+              }
+            }
+          }
+          
+          currentElement = currentElement.nextElementSibling
+        }
+        
+        // If we found guide steps, return them
+        if (guideSteps.length > 0 || foundContent) {
+          return guideSteps.length > 0 ? guideSteps : undefined
+        }
+      }
+    }
+    
+    return undefined
+  } catch (error) {
+    console.error('Error extracting guide steps:', error)
+    return undefined
+  }
+}
+
+/**
  * Extract leads to quests from wiki page with improved parsing
  * Handles infobox table format and multiple other formats
  */
@@ -835,7 +1389,7 @@ export async function extractAllQuestsFromListPage(wikiUrl: string = `${WIKI_BAS
         const questLinks = questCell.querySelectorAll('a[href*="/wiki/"]')
         
         for (const link of questLinks) {
-          const href = link.getAttribute('href') || ''
+              const href = link.getAttribute('href') || ''
           const questName = link.textContent?.trim() || ''
           
           // Skip if it's the trader link itself
@@ -880,11 +1434,17 @@ export async function extractAllQuestsFromListPage(wikiUrl: string = `${WIKI_BAS
 
 /**
  * Scrape quest data from wiki page using FandomScraper
+ * Optionally uses raw HTML from MongoDB if available
  */
 export async function scrapeQuestFromWiki(
   questName: string,
   questId: string,
-  wikiUrl?: string
+  wikiUrl?: string,
+  /**
+   * When true, try to load HTML from raw_wiki_quests first
+   * to avoid hitting the wiki for every quest.
+   */
+  useRawHtml: boolean = false
 ): Promise<WikiQuestData | null> {
   try {
     const finalWikiUrl = wikiUrl || getWikiUrlForQuest(questName)
@@ -893,21 +1453,40 @@ export async function scrapeQuestFromWiki(
     const schema = createQuestPageSchema(finalWikiUrl)
     const scraper = new FandomPersonalScraper(schema)
     
-    // Fetch the page HTML
-    const response = await fetch(finalWikiUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      },
-      next: { revalidate: 3600 },
-    })
+    let html: string | null = null
     
-    if (!response.ok) {
-      console.warn(`Failed to fetch wiki page for ${questName}: ${response.status} - ${finalWikiUrl}`)
-      return null
+    // Try to use raw HTML from MongoDB if requested
+    if (useRawHtml) {
+      try {
+        const { getRawWikiQuest, updateLastScrapedAt } = await import('../db/rawWikiQuests')
+        const rawQuest = await getRawWikiQuest(questId)
+        if (rawQuest && rawQuest.rawHtml) {
+          html = rawQuest.rawHtml
+          // Mark this raw page as used for scraping
+          await updateLastScrapedAt(questId)
+        }
+      } catch (error) {
+        console.warn(`Failed to get raw HTML for ${questName}, falling back to fetch:`, error)
+      }
     }
     
-    const html = await response.text()
+    // Fetch from wiki if raw HTML not available
+    if (!html) {
+      const response = await fetch(finalWikiUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+        next: { revalidate: 3600 },
+      })
+      
+      if (!response.ok) {
+        console.warn(`Failed to fetch wiki page for ${questName}: ${response.status} - ${finalWikiUrl}`)
+        return null
+      }
+      
+      html = await response.text()
+    }
     
     // Parse HTML using JSDOM (FandomScraper uses JSDOM internally)
     const dom = new JSDOM(html, {
@@ -934,20 +1513,35 @@ export async function scrapeQuestFromWiki(
         : ''
     const minPlayerLevel = extractLevelFromRequirements(requirementsText)
     
+    // Extract quest names from Requirements section (e.g., "Accept <quest_name>")
+    const questsFromRequirements = extractQuestsFromRequirements(document, requirementsText)
+    
+    // Merge previousQuests with quests from Requirements section
+    const allPreviousQuests = [...new Set([...previousQuests, ...questsFromRequirements])]
+    
     // Extract infobox data (Location, Given by, Kappa Required, etc.)
     const location = extractLocationFromInfobox(document)
     const givenBy = extractTraderFromInfobox(document)
     const kappaRequired = extractKappaRequiredFromInfobox(document)
     const lightkeeperRequired = extractLightkeeperRequiredFromInfobox(document)
     
+    // Extract quest image from infobox
+    const questImage = extractQuestImage(document)
+    
     // Extract rewards data
     const rewards = extractRewards(document)
+    
+    // Extract Objectives
+    const objectives = extractObjectives(document)
+    
+    // Extract Guide section steps
+    const guideSteps = extractGuideSteps(document)
     
     const result: WikiQuestData = {
       questId,
       questName,
       wikiUrl: finalWikiUrl,
-      previousQuests,
+      previousQuests: allPreviousQuests.length > 0 ? allPreviousQuests : undefined,
       leadsToQuests,
       minPlayerLevel,
       requirements: requirementsText || undefined,
@@ -958,6 +1552,9 @@ export async function scrapeQuestFromWiki(
       rewardsExp: rewards.exp,
       rewardsRep: rewards.rep,
       rewardsOther: rewards.other,
+      questImage,
+      objectives,
+      guideSteps,
       lastScraped: new Date(),
     }
     
@@ -975,10 +1572,15 @@ export async function scrapeQuestsFromWiki(
   quests: Array<{ id: string; name: string; wikiUrl?: string }>,
   onLog?: (log: { level: 'info' | 'success' | 'warning' | 'error'; message: string; questName?: string; questId?: string; details?: Record<string, unknown> }) => void,
   existingWikiData?: Map<string, { previousQuests?: string[]; leadsToQuests?: string[]; minPlayerLevel?: number }>,
-  apiData?: Map<string, { minPlayerLevel?: number; taskRequirements?: Array<{ task: { name: string; id: string } }>; taskRequirementNames?: string[]; trader?: string; fullTask?: any }>
+  apiData?: Map<string, { minPlayerLevel?: number; taskRequirements?: Array<{ task: { name: string; id: string } }>; taskRequirementNames?: string[]; trader?: string; fullTask?: any }>,
+  /**
+   * When true, prefer HTML from raw_wiki_quests for all quests.
+   */
+  useRawHtml: boolean = false
 ): Promise<WikiQuestData[]> {
   const results: WikiQuestData[] = []
-  const delay = 2000 // 2 second delay between requests to be respectful
+  // If we are using cached raw HTML, we can run with no delay and parallelize
+  const delay = useRawHtml ? 0 : 2000
   
   if (onLog) {
     onLog({
@@ -987,7 +1589,7 @@ export async function scrapeQuestsFromWiki(
     })
   }
   
-  for (let i = 0; i < quests.length; i++) {
+  const processOne = async (i: number) => {
     const quest = quests[i]
     
     if (onLog) {
@@ -999,7 +1601,8 @@ export async function scrapeQuestsFromWiki(
       })
     }
     
-    const data = await scrapeQuestFromWiki(quest.name, quest.id, quest.wikiUrl)
+    // Prefer raw HTML from raw_wiki_quests if requested, otherwise hit wiki directly
+    const data = await scrapeQuestFromWiki(quest.name, quest.id, quest.wikiUrl, useRawHtml)
     
     if (data) {
       // Get API data for comparison
@@ -1182,9 +1785,31 @@ export async function scrapeQuestsFromWiki(
       }
     }
     
-    // Rate limiting - wait before next request
-    if (i < quests.length - 1) {
+    // Rate limiting - wait before next request when we are hitting live wiki
+    if (!useRawHtml && i < quests.length - 1 && delay > 0) {
       await new Promise(resolve => setTimeout(resolve, delay))
+    }
+  }
+
+  if (useRawHtml) {
+    // Parallel processing with limited concurrency when using cached HTML
+    const concurrency = Math.min(8, quests.length || 1)
+    let currentIndex = 0
+
+    const workers = Array.from({ length: concurrency }, async () => {
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const i = currentIndex++
+        if (i >= quests.length) break
+        await processOne(i)
+      }
+    })
+
+    await Promise.all(workers)
+  } else {
+    // Sequential when we might be hitting the live wiki
+    for (let i = 0; i < quests.length; i++) {
+      await processOne(i)
     }
   }
   

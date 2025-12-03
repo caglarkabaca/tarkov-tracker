@@ -178,9 +178,13 @@ export default function HomePage() {
 
   const fetchStatus = async () => {
     try {
-      const response = await fetch('/api/tarkov/status?queryName=quests')
-      const data: StatusResponse = await response.json()
-      setStatus(data)
+      // Use wiki quest status (we'll create a status endpoint for wiki quests)
+      // For now, just set a default status
+      setStatus({
+        lastFetched: null,
+        shouldFetch: false,
+        hoursSinceLastFetch: null,
+      })
     } catch (err) {
       console.error('Error fetching status:', err)
     }
@@ -204,9 +208,20 @@ export default function HomePage() {
     setError(null)
 
     try {
-      // Use data endpoint for reading (everyone can access)
-      const url = '/api/tarkov/data?queryName=quests'
-      const response = await fetch(url)
+      // Use wiki quest endpoint (everyone can access for reading)
+      const url = force && isAdmin && userId
+        ? `/api/wiki/quests?force=true`
+        : '/api/wiki/quests'
+      
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+      
+      if (force && isAdmin && userId) {
+        headers['x-user-id'] = userId
+      }
+      
+      const response = await fetch(url, { headers })
       const result: FetchResponse = await response.json()
 
       if (!result.success) {
@@ -234,58 +249,13 @@ export default function HomePage() {
     }
 
     setRefreshing(true)
-    setError(null)
-
-    try {
-      // Use fetch endpoint for updating (admin only)
-      const url = '/api/tarkov/fetch?queryName=quests&force=true'
-      const headers: Record<string, string> = {
-        'x-user-id': userId,
-      }
-
-      const response = await fetch(url, {
-        method: 'GET',
-        headers,
-      })
-      const result: FetchResponse = await response.json()
-
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to refresh quests')
-      }
-
-      if (result.data && 'tasks' in result.data) {
-        setQuests(result.data.tasks || [])
-      }
-
-      await Promise.all([fetchQuests(), fetchTraders(), fetchStatus()])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error occurred')
-      console.error('Error refreshing quests:', err)
-    } finally {
-      setRefreshing(false)
-    }
+    await fetchQuests(true)
   }
 
   const loadData = async () => {
     await fetchTraders()
-
-    try {
-      const response = await fetch('/api/tarkov/data?queryName=quests')
-      if (response.ok) {
-        const result = await response.json()
-        if (result.success && result.data && 'tasks' in result.data) {
-          setQuests(result.data.tasks || [])
-        }
-      }
-    } catch (err) {
-      console.error('Error loading cached data:', err)
-    }
-
+    await fetchQuests()
     await fetchStatus()
-    
-    if (!status?.cacheValid || quests.length === 0) {
-      await fetchQuests()
-    }
   }
 
   useEffect(() => {
@@ -389,7 +359,7 @@ export default function HomePage() {
                 caca's Tarkov Tracker
               </H1>
               <Text fontSize="$1" color="$color9">
-                v0.1.0-beta
+                v0.2.0-beta
               </Text>
             </YStack>
           </XStack>

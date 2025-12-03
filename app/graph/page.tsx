@@ -84,7 +84,7 @@ function QuestGraphContent() {
     setLoading(true)
     try {
       const [questsRes, tradersRes] = await Promise.all([
-        fetch('/api/tarkov/data?queryName=quests'),
+        fetch('/api/wiki/quests'),
         fetch('/api/tarkov/traders'),
       ])
 
@@ -207,7 +207,7 @@ function QuestGraphContent() {
                 Quest Graph
               </H1>
               <Text fontSize="$1" color="$color9">
-                v0.1.0-beta
+                v0.2.0-beta
               </Text>
             </YStack>
           </XStack>

@@ -150,18 +150,34 @@ export async function addScrapingLog(jobId: string, log: ScrapingLogEntry): Prom
  */
 export async function updateScrapingJobStatus(
   jobId: string,
-  status: 'running' | 'completed' | 'failed'
+  status: 'running' | 'completed' | 'failed',
+  progress?: {
+    processedQuests?: number
+    successfulQuests?: number
+    failedQuests?: number
+  }
 ): Promise<void> {
   const db = await getDatabase()
   const collection = db.collection<ScrapingLogDocument>(LOG_COLLECTION_NAME)
   
+  const updateData: any = {
+    status,
+  }
+  
+  if (status === 'completed' || status === 'failed') {
+    updateData.completedAt = new Date()
+  }
+  
+  if (progress) {
+    updateData.processedQuests = progress.processedQuests
+    updateData.successfulQuests = progress.successfulQuests
+    updateData.failedQuests = progress.failedQuests
+  }
+  
   await collection.updateOne(
     { jobId },
     {
-      $set: {
-        status,
-        completedAt: new Date(),
-      },
+      $set: updateData,
     }
   )
 }

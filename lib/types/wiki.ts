@@ -19,6 +19,18 @@ export interface WikiQuestData {
   rewardsExp?: number // Experience points from rewards
   rewardsRep?: Array<{ trader: string; amount: number }> // Trader reputation rewards
   rewardsOther?: string[] // Other rewards (Roubles, items, etc.) as strings
+  // Quest image
+  questImage?: string // Quest image URL from infobox mainimage
+  // Objectives data
+  objectives?: Array<{
+    id: string
+    type: string
+    description?: string
+    optional?: boolean
+    maps?: string[] // Map names
+  }>
+  // Guide section
+  guideSteps?: string[] // Guide steps/items if "Guide" section exists
   lastScraped?: Date // When this data was last scraped
   needsUpdate?: boolean // Flag if data needs to be re-scraped
 }
@@ -44,6 +56,18 @@ export interface WikiQuestDocument {
   rewardsExp?: number
   rewardsRep?: Array<{ trader: string; amount: number }>
   rewardsOther?: string[]
+  // Quest image
+  questImage?: string
+  // Objectives data
+  objectives?: Array<{
+    id: string
+    type: string
+    description?: string
+    optional?: boolean
+    maps?: string[]
+  }>
+  // Guide section
+  guideSteps?: string[]
   lastScraped: Date
   needsUpdate: boolean
 }

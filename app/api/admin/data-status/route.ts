@@ -33,9 +33,8 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get status for all data types
+    // Get status for all data types (only traders now, quests are from wiki)
     const dataTypes = [
-      { queryName: 'quests', dataType: 'Quests' },
       { queryName: 'traders', dataType: 'Traders' },
     ]
 

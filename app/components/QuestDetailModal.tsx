@@ -321,6 +321,29 @@ export function QuestDetailModal({
                 </YStack>
               )}
 
+              {/* Guide Steps */}
+              {quest.guideSteps && quest.guideSteps.length > 0 && (
+                <YStack gap="$2">
+                  <Text fontSize="$4" fontWeight="600" color="$color12">
+                    Guide:
+                  </Text>
+                  <Card size="$2" bordered padding="$3" backgroundColor="$purple2">
+                    <YStack gap="$2">
+                      {quest.guideSteps.map((step, idx) => (
+                        <XStack key={idx} gap="$2" alignItems="flex-start">
+                          <Text fontSize="$2" color="$purple10" fontWeight="600" minWidth={24}>
+                            {idx + 1}.
+                          </Text>
+                          <Text fontSize="$3" color="$color11" flex={1}>
+                            {step}
+                          </Text>
+                        </XStack>
+                      ))}
+                    </YStack>
+                  </Card>
+                </YStack>
+              )}
+
               {/* Finish Rewards */}
               {quest.finishRewards && (
                 <Card size="$2" bordered padding="$3" backgroundColor="$green2">
