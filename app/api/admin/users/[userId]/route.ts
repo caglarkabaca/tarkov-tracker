@@ -3,7 +3,7 @@ import { findUserById, updateUserAdminStatus } from '@/lib/db/user'
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { userId: string } }
+  context: { params: Promise<{ userId: string }> }
 ) {
   try {
     // Check if requesting user is admin
@@ -25,8 +25,8 @@ export async function PUT(
       )
     }
 
-    // Get target user ID from params
-    const targetUserId = params.userId
+    // Get target user ID from params (Next.js 16 passes params as a Promise)
+    const { userId: targetUserId } = await context.params
     
     if (!targetUserId) {
       return NextResponse.json(

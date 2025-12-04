@@ -4,7 +4,7 @@ import { getFetchStatus, getCachedData } from '@/lib/db/tarkov'
 
 interface DataStatus {
   queryName: string
-  lastFetched: Date | null
+  lastFetched: string | null
   hoursSinceLastFetch: number | null
   shouldFetch: boolean
   cacheValid: boolean

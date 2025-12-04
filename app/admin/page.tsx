@@ -65,7 +65,7 @@ export default function AdminPage() {
     questId?: string
     details?: Record<string, unknown>
   }>>([])
-  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null)
+  const [pollingInterval, setPollingInterval] = useState<ReturnType<typeof setInterval> | null>(null)
   const [testWikiUrl, setTestWikiUrl] = useState('')
   const [testingWiki, setTestingWiki] = useState(false)
   const [testResult, setTestResult] = useState<any | null>(null)

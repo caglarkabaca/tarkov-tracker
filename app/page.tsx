@@ -181,9 +181,11 @@ export default function HomePage() {
       // Use wiki quest status (we'll create a status endpoint for wiki quests)
       // For now, just set a default status
       setStatus({
+        success: true,
         lastFetched: null,
         shouldFetch: false,
         hoursSinceLastFetch: null,
+        cacheValid: false,
       })
     } catch (err) {
       console.error('Error fetching status:', err)
