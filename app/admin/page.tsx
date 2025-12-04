@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Button, Card, H1, Text, XStack, YStack, Spinner, ScrollView, Input } from 'tamagui'
-import { ArrowLeft, Shield, Users, TrendingUp, CheckCircle2, Clock, Database, RefreshCw, AlertCircle, Globe, Download } from 'lucide-react'
+import { Button, Card, H1, Text, XStack, YStack, Spinner, ScrollView, Input, Dialog, Sheet } from 'tamagui'
+import { ArrowLeft, Shield, Users, TrendingUp, CheckCircle2, Clock, Database, RefreshCw, AlertCircle, Globe, Download, Edit, Search, X } from 'lucide-react'
 import { Footer } from '../components/Footer'
+import type { Task } from '@/lib/utils/questTree'
 
 interface User {
   id: string
@@ -97,6 +98,12 @@ export default function AdminPage() {
     lastScraped?: Date
   } | null>(null)
   const [loadingRawWikiStatus, setLoadingRawWikiStatus] = useState(false)
+  const [allQuests, setAllQuests] = useState<Task[]>([])
+  const [loadingQuests, setLoadingQuests] = useState(false)
+  const [questSearchQuery, setQuestSearchQuery] = useState('')
+  const [editingQuest, setEditingQuest] = useState<Task | null>(null)
+  const [editModalOpen, setEditModalOpen] = useState(false)
+  const [savingQuest, setSavingQuest] = useState(false)
 
   // Auto-scroll log viewer to bottom when new logs arrive
   useEffect(() => {
@@ -154,6 +161,7 @@ export default function AdminPage() {
     fetchWikiStatus(userId)
     fetchQuestStatus(userId)
     fetchRawWikiStatus(userId)
+    fetchQuests(userId)
     
     // Cleanup polling interval on unmount
     return () => {
@@ -474,6 +482,79 @@ export default function AdminPage() {
       setError(err instanceof Error ? err.message : 'Unknown error occurred')
       console.error('Error downloading images:', err)
       setDownloadingImages(false)
+    }
+  }
+
+  const fetchQuests = async (userId: string) => {
+    setLoadingQuests(true)
+    try {
+      const response = await fetch('/api/wiki/quests', {
+        headers: {
+          'x-user-id': userId,
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch quests')
+      }
+
+      const data = await response.json()
+      if (data.success && data.data && data.data.tasks) {
+        setAllQuests(data.data.tasks)
+      } else if (data.success && data.tasks) {
+        // Fallback for direct tasks property
+        setAllQuests(data.tasks)
+      } else {
+        console.error('Unexpected response format:', data)
+        setError('Unexpected response format from API')
+      }
+    } catch (err) {
+      console.error('Error fetching quests:', err)
+      setError(err instanceof Error ? err.message : 'Failed to fetch quests')
+    } finally {
+      setLoadingQuests(false)
+    }
+  }
+
+  const handleEditQuest = async (quest: Task) => {
+    setEditingQuest(JSON.parse(JSON.stringify(quest))) // Deep copy
+    setEditModalOpen(true)
+  }
+
+  const handleSaveQuest = async () => {
+    if (!editingQuest) return
+
+    setSavingQuest(true)
+    try {
+      const userId = localStorage.getItem('userId')
+      if (!userId) {
+        alert('Error: Not authenticated')
+        return
+      }
+
+      const response = await fetch(`/api/admin/quests/${editingQuest.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': userId,
+        },
+        body: JSON.stringify({ task: editingQuest }),
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        alert('Quest updated successfully!')
+        setEditModalOpen(false)
+        setEditingQuest(null)
+        // Refresh quest list
+        await fetchQuests(userId)
+      } else {
+        alert(`Error: ${data.error || 'Failed to update quest'}`)
+      }
+    } catch (error) {
+      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setSavingQuest(false)
     }
   }
 
@@ -2044,7 +2125,438 @@ export default function AdminPage() {
             )}
           </YStack>
         </Card>
+
+        {/* Quest Management */}
+        <Card elevate size="$4" bordered padding="$4" backgroundColor="$background" borderColor="$blue8">
+          <YStack gap="$3">
+            <XStack gap="$3" alignItems="center" justifyContent="space-between" flexWrap="wrap">
+              <XStack gap="$3" alignItems="center">
+                <Card size="$2" bordered padding="$2" backgroundColor="$blue4" borderRadius="$3">
+                  <Database size={24} color="var(--color-blue-10)" />
+                </Card>
+                <YStack gap="$1">
+                  <Text fontSize="$5" fontWeight="800" color="$color12">
+                    Quest Management
+                  </Text>
+                  <Text fontSize="$2" color="$color10">
+                    Edit and manage quest data manually
+                  </Text>
+                </YStack>
+              </XStack>
+              <Button
+                size="$3"
+                theme="blue"
+                onPress={() => {
+                  const userId = localStorage.getItem('userId') || ''
+                  fetchQuests(userId)
+                }}
+                disabled={loadingQuests}
+              >
+                {loadingQuests ? (
+                  <Spinner size="small" />
+                ) : (
+                  <XStack gap="$2" alignItems="center">
+                    <RefreshCw size={16} />
+                    <Text fontSize="$2">Refresh</Text>
+                  </XStack>
+                )}
+              </Button>
+            </XStack>
+
+            {/* Search */}
+            <XStack gap="$2" alignItems="center">
+              <Input
+                flex={1}
+                placeholder="Search quests by name..."
+                value={questSearchQuery}
+                onChangeText={setQuestSearchQuery}
+                borderColor="$borderColor"
+                backgroundColor="$background"
+                color="$color12"
+                fontSize="$2"
+              />
+              {questSearchQuery && (
+                <Button
+                  size="$2"
+                  theme="gray"
+                  circular
+                  onPress={() => setQuestSearchQuery('')}
+                >
+                  <X size={14} />
+                </Button>
+              )}
+            </XStack>
+
+            {loadingQuests ? (
+              <Card size="$2" bordered padding="$4" backgroundColor="$gray2" alignItems="center">
+                <Spinner size="small" />
+                <Text fontSize="$2" color="$color10" marginTop="$2">
+                  Loading quests...
+                </Text>
+              </Card>
+            ) : allQuests.length === 0 ? (
+              <Card size="$2" bordered padding="$4" backgroundColor="$gray2" alignItems="center">
+                <Text fontSize="$2" color="$color10">
+                  No quests found. Please scrape quests from wiki first.
+                </Text>
+              </Card>
+            ) : (
+              <ScrollView maxHeight="calc(100vh - 500px)">
+                <YStack gap="$2">
+                  {allQuests
+                    .filter(quest =>
+                      questSearchQuery
+                        ? quest.name.toLowerCase().includes(questSearchQuery.toLowerCase())
+                        : true
+                    )
+                    .map((quest) => (
+                      <Card
+                        key={quest.id}
+                        size="$3"
+                        bordered
+                        padding="$3"
+                        backgroundColor="$background"
+                        borderColor="$borderColor"
+                      >
+                        <XStack gap="$3" alignItems="center" justifyContent="space-between" flexWrap="wrap">
+                          <YStack flex={1} minWidth={200} gap="$1">
+                            <XStack gap="$2" alignItems="center" flexWrap="wrap">
+                              <Text fontSize="$3" fontWeight="600" color="$color12">
+                                {quest.name}
+                              </Text>
+                              {quest.trader && (
+                                <XStack
+                                  gap="$1"
+                                  alignItems="center"
+                                  paddingHorizontal="$2"
+                                  paddingVertical="$1"
+                                  backgroundColor="$blue4"
+                                  borderRadius="$2"
+                                >
+                                  <Text fontSize="$1" color="$blue10" fontWeight="600">
+                                    {quest.trader.name}
+                                  </Text>
+                                </XStack>
+                              )}
+                            </XStack>
+                            <XStack gap="$4" flexWrap="wrap">
+                              {quest.minPlayerLevel && (
+                                <Text fontSize="$1" color="$color9">
+                                  Level: {quest.minPlayerLevel}
+                                </Text>
+                              )}
+                              {quest.taskRequirements && quest.taskRequirements.length > 0 && (
+                                <Text fontSize="$1" color="$color9">
+                                  Prerequisites: {quest.taskRequirements.length}
+                                </Text>
+                              )}
+                              {quest.wikiLink && (
+                                <Text fontSize="$1" color="$color9" style={{ wordBreak: 'break-all' }}>
+                                  {quest.wikiLink}
+                                </Text>
+                              )}
+                            </XStack>
+                          </YStack>
+                          <Button
+                            size="$2"
+                            theme="blue"
+                            onPress={() => handleEditQuest(quest)}
+                          >
+                            <XStack gap="$1" alignItems="center">
+                              <Edit size={14} />
+                              <Text fontSize="$1">Edit</Text>
+                            </XStack>
+                          </Button>
+                        </XStack>
+                      </Card>
+                    ))}
+                </YStack>
+              </ScrollView>
+            )}
+          </YStack>
+        </Card>
       </YStack>
+
+      {/* Edit Quest Modal */}
+      <Dialog modal open={editModalOpen} onOpenChange={setEditModalOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay
+            key="overlay"
+            animation="quick"
+            opacity={0.5}
+            enterStyle={{ opacity: 0 }}
+            exitStyle={{ opacity: 0 }}
+          />
+          <Dialog.Content
+            bordered
+            elevate
+            key="content"
+            animateOnly={['transform', 'opacity']}
+            animation={[
+              'quick',
+              {
+                opacity: {
+                  overshootClamping: true,
+                },
+              },
+            ]}
+            enterStyle={{ x: 0, y: -20, opacity: 0, scale: 0.9 }}
+            exitStyle={{ x: 0, y: 10, opacity: 0, scale: 0.95 }}
+            gap="$4"
+            maxWidth={900}
+            maxHeight="90vh"
+            backgroundColor="$background"
+          >
+            <Dialog.Title fontSize="$6" fontWeight="800" color="$color12">
+              Edit Quest: {editingQuest?.name}
+            </Dialog.Title>
+
+            {editingQuest && (
+              <ScrollView maxHeight="calc(90vh - 150px)">
+                <YStack gap="$4" padding="$2">
+                  {/* Basic Info */}
+                  <YStack gap="$2">
+                    <Text fontSize="$3" fontWeight="600" color="$color12">
+                      Basic Information
+                    </Text>
+                    <Card size="$2" bordered padding="$3" backgroundColor="$gray2">
+                      <YStack gap="$2">
+                        <XStack gap="$2" alignItems="center">
+                          <Text fontSize="$2" color="$color10" minWidth={120}>
+                            Quest ID:
+                          </Text>
+                          <Input
+                            flex={1}
+                            value={editingQuest.id}
+                            onChangeText={(text) => setEditingQuest({ ...editingQuest, id: text })}
+                            borderColor="$borderColor"
+                            backgroundColor="$background"
+                            color="$color12"
+                            fontSize="$2"
+                          />
+                        </XStack>
+                        <XStack gap="$2" alignItems="center">
+                          <Text fontSize="$2" color="$color10" minWidth={120}>
+                            Quest Name:
+                          </Text>
+                          <Input
+                            flex={1}
+                            value={editingQuest.name}
+                            onChangeText={(text) => setEditingQuest({ ...editingQuest, name: text })}
+                            borderColor="$borderColor"
+                            backgroundColor="$background"
+                            color="$color12"
+                            fontSize="$2"
+                          />
+                        </XStack>
+                        <XStack gap="$2" alignItems="center">
+                          <Text fontSize="$2" color="$color10" minWidth={120}>
+                            Min Level:
+                          </Text>
+                          <Input
+                            flex={1}
+                            value={editingQuest.minPlayerLevel?.toString() || ''}
+                            onChangeText={(text) =>
+                              setEditingQuest({
+                                ...editingQuest,
+                                minPlayerLevel: text ? parseInt(text, 10) : undefined,
+                              })
+                            }
+                            borderColor="$borderColor"
+                            backgroundColor="$background"
+                            color="$color12"
+                            fontSize="$2"
+                            keyboardType="numeric"
+                          />
+                        </XStack>
+                        <XStack gap="$2" alignItems="center">
+                          <Text fontSize="$2" color="$color10" minWidth={120}>
+                            Experience:
+                          </Text>
+                          <Input
+                            flex={1}
+                            value={editingQuest.experience?.toString() || ''}
+                            onChangeText={(text) =>
+                              setEditingQuest({
+                                ...editingQuest,
+                                experience: text ? parseInt(text, 10) : undefined,
+                              })
+                            }
+                            borderColor="$borderColor"
+                            backgroundColor="$background"
+                            color="$color12"
+                            fontSize="$2"
+                            keyboardType="numeric"
+                          />
+                        </XStack>
+                        <XStack gap="$2" alignItems="center">
+                          <Text fontSize="$2" color="$color10" minWidth={120}>
+                            Wiki URL:
+                          </Text>
+                          <Input
+                            flex={1}
+                            value={editingQuest.wikiLink || ''}
+                            onChangeText={(text) =>
+                              setEditingQuest({ ...editingQuest, wikiLink: text || undefined })
+                            }
+                            borderColor="$borderColor"
+                            backgroundColor="$background"
+                            color="$color12"
+                            fontSize="$2"
+                          />
+                        </XStack>
+                      </YStack>
+                    </Card>
+                  </YStack>
+
+                  {/* Task Requirements */}
+                  <YStack gap="$2">
+                    <Text fontSize="$3" fontWeight="600" color="$color12">
+                      Prerequisites (Task Requirements)
+                    </Text>
+                    <Card size="$2" bordered padding="$3" backgroundColor="$gray2">
+                      <YStack gap="$2">
+                        {editingQuest.taskRequirements && editingQuest.taskRequirements.length > 0 ? (
+                          editingQuest.taskRequirements.map((req, idx) => (
+                            <XStack key={idx} gap="$2" alignItems="center">
+                              <Text fontSize="$2" color="$color10" minWidth={80}>
+                                #{idx + 1}
+                              </Text>
+                              <Input
+                                flex={1}
+                                value={req.task.name}
+                                onChangeText={(text) => {
+                                  const newReqs = [...(editingQuest.taskRequirements || [])]
+                                  newReqs[idx] = {
+                                    ...req,
+                                    task: { ...req.task, name: text },
+                                  }
+                                  setEditingQuest({ ...editingQuest, taskRequirements: newReqs })
+                                }}
+                                borderColor="$borderColor"
+                                backgroundColor="$background"
+                                color="$color12"
+                                fontSize="$2"
+                                placeholder="Quest name"
+                              />
+                              <Input
+                                flex={1}
+                                value={req.task.id}
+                                onChangeText={(text) => {
+                                  const newReqs = [...(editingQuest.taskRequirements || [])]
+                                  newReqs[idx] = {
+                                    ...req,
+                                    task: { ...req.task, id: text },
+                                  }
+                                  setEditingQuest({ ...editingQuest, taskRequirements: newReqs })
+                                }}
+                                borderColor="$borderColor"
+                                backgroundColor="$background"
+                                color="$color12"
+                                fontSize="$2"
+                                placeholder="Quest ID"
+                              />
+                              <Button
+                                size="$2"
+                                theme="red"
+                                onPress={() => {
+                                  const newReqs = editingQuest.taskRequirements?.filter((_, i) => i !== idx) || []
+                                  setEditingQuest({ ...editingQuest, taskRequirements: newReqs })
+                                }}
+                              >
+                                <X size={12} />
+                              </Button>
+                            </XStack>
+                          ))
+                        ) : (
+                          <Text fontSize="$1" color="$color9">
+                            No prerequisites
+                          </Text>
+                        )}
+                        <Button
+                          size="$2"
+                          theme="green"
+                          onPress={() => {
+                            const newReqs = [
+                              ...(editingQuest.taskRequirements || []),
+                              {
+                                task: { id: '', name: '', normalizedName: '' },
+                                status: ['Started', 'AvailableForStart'],
+                              },
+                            ]
+                            setEditingQuest({ ...editingQuest, taskRequirements: newReqs })
+                          }}
+                        >
+                          <Text fontSize="$1">+ Add Prerequisite</Text>
+                        </Button>
+                      </YStack>
+                    </Card>
+                  </YStack>
+
+                  {/* JSON Editor (for advanced editing) */}
+                  <YStack gap="$2">
+                    <Text fontSize="$3" fontWeight="600" color="$color12">
+                      Advanced: Raw JSON
+                    </Text>
+                    <Card size="$2" bordered padding="$3" backgroundColor="$gray2">
+                      <ScrollView maxHeight={300}>
+                        <Input
+                          multiline
+                          numberOfLines={10}
+                          value={JSON.stringify(editingQuest, null, 2)}
+                          onChangeText={(text) => {
+                            try {
+                              const parsed = JSON.parse(text)
+                              setEditingQuest(parsed)
+                            } catch (e) {
+                              // Invalid JSON, ignore
+                            }
+                          }}
+                          borderColor="$borderColor"
+                          backgroundColor="#1a1a1a"
+                          color="#00ff00"
+                          fontSize="$1"
+                          fontFamily="monospace"
+                          padding="$2"
+                        />
+                      </ScrollView>
+                    </Card>
+                  </YStack>
+                </YStack>
+              </ScrollView>
+            )}
+
+            <XStack gap="$3" justifyContent="flex-end">
+              <Dialog.Close displayWhenAdapted asChild>
+                <Button
+                  theme="gray"
+                  onPress={() => {
+                    setEditModalOpen(false)
+                    setEditingQuest(null)
+                  }}
+                >
+                  Cancel
+                </Button>
+              </Dialog.Close>
+              <Button
+                theme="blue"
+                onPress={handleSaveQuest}
+                disabled={savingQuest || !editingQuest}
+              >
+                {savingQuest ? (
+                  <XStack gap="$2" alignItems="center">
+                    <Spinner size="small" />
+                    <Text>Saving...</Text>
+                  </XStack>
+                ) : (
+                  <Text>Save Changes</Text>
+                )}
+              </Button>
+            </XStack>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog>
+
       <Footer />
     </YStack>
   )

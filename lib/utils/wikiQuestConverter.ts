@@ -85,43 +85,101 @@ export function convertWikiQuestToTask(
     : undefined
 
   // Build task requirements from previous quests
-  const taskRequirements = wikiData.previousQuests
-    ?.map((prevQuestName) => {
+  // Priority: Use links if available (more reliable), otherwise fall back to name matching
+  const taskRequirements: Array<{
+    task: {
+      id: string
+      name: string
+      normalizedName: string
+      trader?: { id: string; name: string }
+    }
+    status: string[]
+  }> = []
+
+  // First, try to match using links (more reliable)
+  if (wikiData.previousQuestLinks && wikiData.previousQuestLinks.length > 0) {
+    for (const prevQuestLink of wikiData.previousQuestLinks) {
+      // Find the previous quest by matching wikiUrl
+      const prevQuest = allWikiQuests.find(
+        (q) => q.wikiUrl && q.wikiUrl === prevQuestLink.wikiUrl
+      )
+
+      if (prevQuest) {
+        const prevQuestId = prevQuest.questId || generateQuestId(prevQuestLink.name)
+        const prevQuestNormalizedName = normalizeQuestName(prevQuestLink.name)
+
+        // Find trader for previous quest
+        const prevTrader = prevQuest.givenBy
+          ? traders.find(
+              (t) =>
+                t.name.toLowerCase() === prevQuest.givenBy?.toLowerCase() ||
+                t.normalizedName?.toLowerCase() === normalizeQuestName(prevQuest.givenBy || '').replace(/\s+/g, '')
+            )
+          : undefined
+
+        taskRequirements.push({
+          task: {
+            id: prevQuestId,
+            name: prevQuestLink.name,
+            normalizedName: prevQuestNormalizedName,
+            trader: prevTrader
+              ? {
+                  id: prevTrader.id,
+                  name: prevTrader.name,
+                }
+              : undefined,
+          },
+          status: ['Started', 'AvailableForStart'] as string[],
+        })
+      }
+    }
+  }
+
+  // Fallback: If no links or some links didn't match, use name matching
+  if (wikiData.previousQuests && (taskRequirements.length === 0 || taskRequirements.length < (wikiData.previousQuests.length || 0))) {
+    const matchedNames = new Set(taskRequirements.map(req => req.task.name.toLowerCase()))
+    
+    for (const prevQuestName of wikiData.previousQuests) {
+      // Skip if already matched via link
+      if (matchedNames.has(prevQuestName.toLowerCase())) {
+        continue
+      }
+
       // Find the previous quest in all wiki quests using fuzzy matching
       const prevQuest = allWikiQuests.find(
         (q) => questNamesMatch(q.questName, prevQuestName)
       )
 
-      if (!prevQuest) return null
+      if (prevQuest) {
+        const prevQuestId = prevQuest.questId || generateQuestId(prevQuestName)
+        const prevQuestNormalizedName = normalizeQuestName(prevQuestName)
 
-      const prevQuestId = prevQuest.questId || generateQuestId(prevQuestName)
-      const prevQuestNormalizedName = normalizeQuestName(prevQuestName)
+        // Find trader for previous quest
+        const prevTrader = prevQuest.givenBy
+          ? traders.find(
+              (t) =>
+                t.name.toLowerCase() === prevQuest.givenBy?.toLowerCase() ||
+                t.normalizedName?.toLowerCase() === normalizeQuestName(prevQuest.givenBy || '').replace(/\s+/g, '')
+            )
+          : undefined
 
-      // Find trader for previous quest
-      const prevTrader = prevQuest.givenBy
-        ? traders.find(
-            (t) =>
-              t.name.toLowerCase() === prevQuest.givenBy?.toLowerCase() ||
-              t.normalizedName?.toLowerCase() === normalizeQuestName(prevQuest.givenBy || '').replace(/\s+/g, '')
-          )
-        : undefined
-
-      return {
-        task: {
-          id: prevQuestId,
-          name: prevQuestName,
-          normalizedName: prevQuestNormalizedName,
-          trader: prevTrader
-            ? {
-                id: prevTrader.id,
-                name: prevTrader.name,
-              }
-            : undefined,
-        },
-        status: ['Started', 'AvailableForStart'] as string[],
+        taskRequirements.push({
+          task: {
+            id: prevQuestId,
+            name: prevQuestName,
+            normalizedName: prevQuestNormalizedName,
+            trader: prevTrader
+              ? {
+                  id: prevTrader.id,
+                  name: prevTrader.name,
+                }
+              : undefined,
+          },
+          status: ['Started', 'AvailableForStart'] as string[],
+        })
       }
-    })
-    .filter((req): req is NonNullable<typeof req> => req !== null) || []
+    }
+  }
 
   // Build trader requirements (if we can extract from requirements text)
   const traderRequirements: Array<{

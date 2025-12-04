@@ -90,7 +90,7 @@ export default function LoginPage() {
                 {isLogin ? 'Login' : 'Register'}
               </H1>
               <Text fontSize="$1" color="$color9" textAlign="center">
-                v0.2.0-beta
+                v0.2.1-beta
               </Text>
             </YStack>
           </XStack>

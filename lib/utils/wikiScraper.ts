@@ -263,6 +263,163 @@ function extractQuestNamesFromAnchors(anchors: HTMLAnchorElement[] | NodeListOf<
 }
 
 /**
+ * Extract previous quest links from wiki page
+ * Returns array of { name, wikiUrl } objects for more reliable matching
+ */
+function extractPreviousQuestLinks(document: Document, baseUrl: string = WIKI_BASE_URL): Array<{ name: string; wikiUrl: string }> {
+  const questLinks: Array<{ name: string; wikiUrl: string }> = []
+  
+  // Method 1: Look for infobox table with "Related quests" header
+  const relatedQuestHeaders = Array.from(document.querySelectorAll('.va-infobox-header, th'))
+    .filter(header => header.textContent?.toLowerCase().includes('related quests'))
+  
+  for (const header of relatedQuestHeaders) {
+    // Find the table containing this header
+    const infoboxGroup = header.closest('.va-infobox-group') || header.closest('table')
+    if (!infoboxGroup) continue
+    
+    // Look for td elements with "Previous:" text
+    const allCells = infoboxGroup.querySelectorAll('td.va-infobox-content, td')
+    
+    for (const cell of allCells) {
+      const cellText = cell.textContent || ''
+      
+      // Check if this cell contains "Previous:"
+      if (cellText.toLowerCase().includes('previous:')) {
+        // Extract links from this cell
+        const links = cell.querySelectorAll('a[href*="/wiki/"]')
+        links.forEach(link => {
+          const href = link.getAttribute('href') || ''
+          const linkText = link.textContent?.trim() || ''
+          
+          // Skip if link is in "Leads to:" section
+          const cellTextLower = cellText.toLowerCase()
+          const linkPos = cellText.indexOf(linkText)
+          const leadsToPos = cellTextLower.indexOf('leads to:')
+          if (leadsToPos !== -1 && linkPos > leadsToPos) {
+            return // Skip this link, it's in "Leads to:" section
+          }
+          
+          // Parse relative URL
+          if (href.startsWith('/wiki/')) {
+            const wikiMatch = href.match(/\/wiki\/(.+?)(?:\?|$)/)
+            if (wikiMatch) {
+              const questName = decodeURIComponent(wikiMatch[1].replace(/_/g, ' '))
+              if (questName && 
+                  !questName.includes('Category:') && 
+                  !questName.includes('File:') && 
+                  !questName.includes('User:') &&
+                  questName !== '-') {
+                // Build full URL
+                const fullUrl = baseUrl + href.split('?')[0] // Remove query params
+                questLinks.push({
+                  name: linkText || questName,
+                  wikiUrl: fullUrl,
+                })
+              }
+            }
+          } else if (href.startsWith('http')) {
+            // Already a full URL
+            const wikiMatch = href.match(/\/wiki\/(.+?)(?:\?|$)/)
+            if (wikiMatch) {
+              const questName = decodeURIComponent(wikiMatch[1].replace(/_/g, ' '))
+              if (questName && 
+                  !questName.includes('Category:') && 
+                  !questName.includes('File:') && 
+                  !questName.includes('User:') &&
+                  questName !== '-') {
+                questLinks.push({
+                  name: linkText || questName,
+                  wikiUrl: href.split('?')[0], // Remove query params
+                })
+              }
+            }
+          }
+        })
+      }
+    }
+  }
+  
+  // Method 2: Fallback to original method if infobox not found
+  if (questLinks.length === 0) {
+    const relatedSection = Array.from(document.querySelectorAll('h2, h3')).find(
+      h => h.textContent?.toLowerCase().includes('related quests')
+    )
+    
+    if (relatedSection) {
+      let current: Element | null = relatedSection.nextElementSibling
+      
+      while (current) {
+        if (current.tagName === 'H2') break
+        
+        const textContent = current.textContent || ''
+        const normalizedText = textContent.toLowerCase()
+        
+        if (normalizedText.includes('previous:')) {
+          const links = current.querySelectorAll('a[href*="/wiki/"]')
+          links.forEach(link => {
+            const href = link.getAttribute('href') || ''
+            const linkText = link.textContent?.trim() || ''
+            const linkPos = textContent.indexOf(linkText)
+            const leadsToPos = textContent.toLowerCase().indexOf('leads to:')
+            
+            // Skip if link is in "Leads to:" section
+            if (leadsToPos !== -1 && linkPos > leadsToPos) {
+              return
+            }
+            
+            if (href.startsWith('/wiki/')) {
+              const wikiMatch = href.match(/\/wiki\/(.+?)(?:\?|$)/)
+              if (wikiMatch) {
+                const questName = decodeURIComponent(wikiMatch[1].replace(/_/g, ' '))
+                if (questName && 
+                    !questName.includes('Category:') && 
+                    !questName.includes('File:') && 
+                    questName !== '-') {
+                  const fullUrl = baseUrl + href.split('?')[0]
+                  questLinks.push({
+                    name: linkText || questName,
+                    wikiUrl: fullUrl,
+                  })
+                }
+              }
+            } else if (href.startsWith('http')) {
+              const wikiMatch = href.match(/\/wiki\/(.+?)(?:\?|$)/)
+              if (wikiMatch) {
+                const questName = decodeURIComponent(wikiMatch[1].replace(/_/g, ' '))
+                if (questName && 
+                    !questName.includes('Category:') && 
+                    !questName.includes('File:') && 
+                    questName !== '-') {
+                  questLinks.push({
+                    name: linkText || questName,
+                    wikiUrl: href.split('?')[0],
+                  })
+                }
+              }
+            }
+          })
+          
+          break
+        }
+        
+        current = current.nextElementSibling
+      }
+    }
+  }
+  
+  // Remove duplicates based on wikiUrl
+  const seen = new Set<string>()
+  return questLinks.filter(link => {
+    if (seen.has(link.wikiUrl)) {
+      return false
+    }
+    seen.add(link.wikiUrl)
+    return link.name && link.name.length > 2 && link.name !== '-'
+  })
+}
+
+/**
  * Extract previous quests from wiki page with improved parsing
  * Handles infobox table format and multiple other formats
  */
@@ -1502,6 +1659,9 @@ export async function scrapeQuestFromWiki(
       // Extract previous quests - improved parsing
       const previousQuests = extractPreviousQuests(document)
       
+      // Extract previous quest links (more reliable for matching)
+      const previousQuestLinks = extractPreviousQuestLinks(document, WIKI_BASE_URL)
+      
       // Extract leads to quests - improved parsing
       const leadsToQuests = extractLeadsToQuests(document)
     
@@ -1542,6 +1702,7 @@ export async function scrapeQuestFromWiki(
       questName,
       wikiUrl: finalWikiUrl,
       previousQuests: allPreviousQuests.length > 0 ? allPreviousQuests : undefined,
+      previousQuestLinks: previousQuestLinks.length > 0 ? previousQuestLinks : undefined,
       leadsToQuests,
       minPlayerLevel,
       requirements: requirementsText || undefined,

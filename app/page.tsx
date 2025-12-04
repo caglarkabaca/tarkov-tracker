@@ -230,9 +230,18 @@ export default function HomePage() {
         throw new Error(result.error || 'Failed to fetch quests')
       }
 
-      if (result.data && 'tasks' in result.data) {
-        setQuests(result.data.tasks || [])
-      }
+      const tasksFromResponse =
+        (result.data && 'tasks' in result.data ? result.data.tasks : undefined) ||
+        // Some legacy responses return tasks at root level
+        (result as unknown as { tasks?: Task[] }).tasks ||
+        []
+
+      // Sanitize tasks to avoid null/undefined entries coming from legacy documents
+      const sanitizedTasks = (tasksFromResponse || []).filter(
+        (task): task is Task => !!task && typeof task === 'object'
+      )
+
+      setQuests(sanitizedTasks)
 
       await fetchStatus()
     } catch (err) {
@@ -361,7 +370,7 @@ export default function HomePage() {
                 caca's Tarkov Tracker
               </H1>
               <Text fontSize="$1" color="$color9">
-                v0.2.0-beta
+                v0.2.1-beta
               </Text>
             </YStack>
           </XStack>

@@ -7,6 +7,7 @@ export interface WikiQuestData {
   questName: string // Quest name from API (for matching)
   wikiUrl?: string // URL to the wiki page
   previousQuests?: string[] // Quest names from "Previous" section
+  previousQuestLinks?: Array<{ name: string; wikiUrl: string }> // Quest links from "Previous" section (more reliable)
   leadsToQuests?: string[] // Quest names from "Leads To" section
   minPlayerLevel?: number // Extracted from Requirements section
   requirements?: string // Raw requirements text

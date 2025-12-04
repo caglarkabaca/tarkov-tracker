@@ -1,18 +1,33 @@
 /**
  * MongoDB functions for storing wiki quest data as Task format
+ * Each quest is stored as a separate document for better scalability and performance
  */
 
 import { getDatabase } from '../mongodb'
 import type { Task } from '../utils/questTree'
 
 const COLLECTION_NAME = 'wiki_quests'
+const METADATA_ID = 'metadata'
 const CACHE_DURATION_HOURS = 24
 
+/**
+ * Individual quest document stored in MongoDB
+ */
 export interface WikiQuestTaskDocument {
-  _id?: string
+  _id: string // Quest ID (task.id)
+  questId: string // Same as _id, for clarity
+  task: Task
   lastFetched: Date
   lastUpdated?: Date
-  tasks: Task[]
+}
+
+/**
+ * Metadata document for tracking overall collection status
+ */
+export interface WikiQuestMetadataDocument {
+  _id: string // Always 'metadata'
+  lastFetched: Date
+  lastUpdated?: Date
   totalCount: number
   scrapingProgress?: {
     jobId: string
@@ -25,22 +40,48 @@ export interface WikiQuestTaskDocument {
 
 /**
  * Save wiki quest tasks to MongoDB
+ * Each quest is saved as a separate document
  */
 export async function saveWikiQuestTasks(tasks: Task[]): Promise<void> {
   try {
     const db = await getDatabase()
     const collection = db.collection<WikiQuestTaskDocument>(COLLECTION_NAME)
+    const metadataCollection = db.collection<WikiQuestMetadataDocument>(COLLECTION_NAME)
 
-    const document: WikiQuestTaskDocument = {
-      lastFetched: new Date(),
-      tasks,
-      totalCount: tasks.length,
+    const now = new Date()
+
+    // Save each quest as a separate document
+    const operations = tasks.map(task => ({
+      updateOne: {
+        filter: { _id: task.id },
+        update: {
+          $set: {
+            _id: task.id,
+            questId: task.id,
+            task,
+            lastFetched: now,
+            lastUpdated: now,
+          },
+        },
+        upsert: true,
+      },
+    }))
+
+    if (operations.length > 0) {
+      await collection.bulkWrite(operations)
     }
 
-    // Upsert: Update if exists, insert if not
-    await collection.updateOne(
-      { _id: 'quests' },
-      { $set: document },
+    // Update metadata
+    await metadataCollection.updateOne(
+      { _id: METADATA_ID },
+      {
+        $set: {
+          _id: METADATA_ID,
+          lastFetched: now,
+          lastUpdated: now,
+          totalCount: tasks.length,
+        },
+      },
       { upsert: true }
     )
   } catch (error) {
@@ -51,19 +92,32 @@ export async function saveWikiQuestTasks(tasks: Task[]): Promise<void> {
 
 /**
  * Get cached wiki quest tasks from MongoDB
+ * Collects all individual quest documents
  */
 export async function getCachedWikiQuestTasks(): Promise<Task[] | null> {
   try {
     const db = await getDatabase()
     const collection = db.collection<WikiQuestTaskDocument>(COLLECTION_NAME)
 
-    const existing = await collection.findOne({ _id: 'quests' })
+    // Get all quest documents (exclude metadata)
+    const questDocs = await collection
+      .find({ _id: { $ne: METADATA_ID } })
+      .toArray()
 
-    if (!existing) {
+    if (questDocs.length === 0) {
       return null
     }
 
-    return existing.tasks || []
+    // Extract tasks from documents and filter out legacy documents without task data
+    const tasks = questDocs
+      .map(doc => doc.task)
+      .filter((task): task is Task => !!task && typeof task === 'object')
+
+    if (tasks.length === 0) {
+      return null
+    }
+
+    return tasks
   } catch (error) {
     console.error('Error getting cached wiki quest tasks:', error)
     throw error
@@ -81,29 +135,46 @@ export async function checkWikiQuestTasksCache(): Promise<{
 }> {
   try {
     const db = await getDatabase()
+    const metadataCollection = db.collection<WikiQuestMetadataDocument>(COLLECTION_NAME)
     const collection = db.collection<WikiQuestTaskDocument>(COLLECTION_NAME)
 
-    const existing = await collection.findOne({ _id: 'quests' })
+    // Check metadata first
+    const metadata = await metadataCollection.findOne({ _id: METADATA_ID })
 
-    if (!existing) {
+    if (!metadata) {
+      // Check if there are any quest documents (legacy support)
+      const questCount = await collection.countDocuments({ _id: { $ne: METADATA_ID } })
+      if (questCount === 0) {
+        return {
+          exists: false,
+          lastFetched: null,
+          tasks: null,
+          shouldFetch: true,
+        }
+      }
+      // Legacy data exists, fetch all tasks
+      const tasks = await getCachedWikiQuestTasks()
       return {
-        exists: false,
+        exists: true,
         lastFetched: null,
-        tasks: null,
-        shouldFetch: true,
+        tasks,
+        shouldFetch: true, // Force fetch to create metadata
       }
     }
 
+    // Get all tasks
+    const tasks = await getCachedWikiQuestTasks()
+
     // Handle legacy documents that might be missing lastFetched
     const now = new Date()
-    const lastFetched = existing.lastFetched || existing.lastUpdated || now
+    const lastFetched = metadata.lastFetched || metadata.lastUpdated || now
     const hoursSinceLastFetch = (now.getTime() - lastFetched.getTime()) / (1000 * 60 * 60)
-    const shouldFetch = !existing.lastFetched || hoursSinceLastFetch >= CACHE_DURATION_HOURS
+    const shouldFetch = !metadata.lastFetched || hoursSinceLastFetch >= CACHE_DURATION_HOURS
 
     return {
       exists: true,
       lastFetched,
-      tasks: existing.tasks || [],
+      tasks,
       shouldFetch,
     }
   } catch (error) {
@@ -150,13 +221,19 @@ export async function getWikiQuestTasksFetchStatus(): Promise<{
 
 /**
  * Clear wiki quest tasks cache
+ * Deletes all quest documents and metadata
  */
 export async function clearWikiQuestTasksCache(): Promise<void> {
   try {
     const db = await getDatabase()
     const collection = db.collection<WikiQuestTaskDocument>(COLLECTION_NAME)
+    const metadataCollection = db.collection<WikiQuestMetadataDocument>(COLLECTION_NAME)
 
-    await collection.deleteOne({ _id: 'quests' })
+    // Delete all quest documents
+    await collection.deleteMany({ _id: { $ne: METADATA_ID } })
+    
+    // Delete metadata
+    await metadataCollection.deleteOne({ _id: METADATA_ID })
   } catch (error) {
     console.error('Error clearing wiki quest tasks cache:', error)
     throw error
@@ -165,40 +242,43 @@ export async function clearWikiQuestTasksCache(): Promise<void> {
 
 /**
  * Save or update a single quest task incrementally
- * Adds or updates a task in the tasks array without replacing all tasks
+ * Saves/updates a single quest as its own document
  */
 export async function saveWikiQuestTaskIncremental(task: Task): Promise<void> {
   try {
     const db = await getDatabase()
     const collection = db.collection<WikiQuestTaskDocument>(COLLECTION_NAME)
+    const metadataCollection = db.collection<WikiQuestMetadataDocument>(COLLECTION_NAME)
 
-    // Get existing document or create new one
-    const existing = await collection.findOne({ _id: 'quests' })
-    
     const now = new Date()
-    let tasks: Task[] = []
-    
-    if (existing && existing.tasks) {
-      tasks = existing.tasks
-      // Check if task already exists and update it, or add new one
-      const existingIndex = tasks.findIndex(t => t.id === task.id)
-      if (existingIndex >= 0) {
-        tasks[existingIndex] = task
-      } else {
-        tasks.push(task)
-      }
-    } else {
-      tasks = [task]
-    }
 
+    // Save/update the individual quest document
     await collection.updateOne(
-      { _id: 'quests' },
+      { _id: task.id },
       {
         $set: {
+          _id: task.id,
+          questId: task.id,
+          task,
           lastFetched: now,
-          tasks,
-          totalCount: tasks.length,
           lastUpdated: now,
+        },
+      },
+      { upsert: true }
+    )
+
+    // Update metadata total count
+    const totalCount = await collection.countDocuments({ _id: { $ne: METADATA_ID } })
+    await metadataCollection.updateOne(
+      { _id: METADATA_ID },
+      {
+        $set: {
+          _id: METADATA_ID,
+          lastUpdated: now,
+          totalCount,
+        },
+        $setOnInsert: {
+          lastFetched: now,
         },
       },
       { upsert: true }
@@ -211,6 +291,7 @@ export async function saveWikiQuestTaskIncremental(task: Task): Promise<void> {
 
 /**
  * Update scraping progress state
+ * Stored in metadata document
  */
 export async function updateScrapingProgress(
   jobId: string,
@@ -220,12 +301,13 @@ export async function updateScrapingProgress(
 ): Promise<void> {
   try {
     const db = await getDatabase()
-    const collection = db.collection<WikiQuestTaskDocument>(COLLECTION_NAME)
+    const metadataCollection = db.collection<WikiQuestMetadataDocument>(COLLECTION_NAME)
 
-    await collection.updateOne(
-      { _id: 'quests' },
+    await metadataCollection.updateOne(
+      { _id: METADATA_ID },
       {
         $set: {
+          _id: METADATA_ID,
           scrapingProgress: {
             jobId,
             currentIndex,
@@ -233,6 +315,11 @@ export async function updateScrapingProgress(
             lastScrapedQuest,
             updatedAt: new Date(),
           },
+        },
+        $setOnInsert: {
+          lastFetched: new Date(),
+          lastUpdated: new Date(),
+          totalCount: 0,
         },
       },
       { upsert: true }
@@ -245,6 +332,7 @@ export async function updateScrapingProgress(
 
 /**
  * Get scraping progress state
+ * Reads from metadata document
  */
 export async function getScrapingProgress(): Promise<{
   jobId?: string
@@ -255,15 +343,15 @@ export async function getScrapingProgress(): Promise<{
 } | null> {
   try {
     const db = await getDatabase()
-    const collection = db.collection<WikiQuestTaskDocument>(COLLECTION_NAME)
+    const metadataCollection = db.collection<WikiQuestMetadataDocument>(COLLECTION_NAME)
 
-    const existing = await collection.findOne({ _id: 'quests' })
+    const metadata = await metadataCollection.findOne({ _id: METADATA_ID })
     
-    if (!existing || !('scrapingProgress' in existing)) {
+    if (!metadata || !metadata.scrapingProgress) {
       return null
     }
 
-    return (existing as any).scrapingProgress || null
+    return metadata.scrapingProgress
   } catch (error) {
     console.error('Error getting scraping progress:', error)
     return null
@@ -272,14 +360,15 @@ export async function getScrapingProgress(): Promise<{
 
 /**
  * Clear scraping progress state
+ * Removes progress from metadata document
  */
 export async function clearScrapingProgress(): Promise<void> {
   try {
     const db = await getDatabase()
-    const collection = db.collection<WikiQuestTaskDocument>(COLLECTION_NAME)
+    const metadataCollection = db.collection<WikiQuestMetadataDocument>(COLLECTION_NAME)
 
-    await collection.updateOne(
-      { _id: 'quests' },
+    await metadataCollection.updateOne(
+      { _id: METADATA_ID },
       {
         $unset: { scrapingProgress: '' },
         $set: { lastUpdated: new Date() },
@@ -288,6 +377,66 @@ export async function clearScrapingProgress(): Promise<void> {
   } catch (error) {
     console.error('Error clearing scraping progress:', error)
     // Don't throw, this is not critical
+  }
+}
+
+/**
+ * Get a single quest task by ID
+ */
+export async function getWikiQuestTaskById(questId: string): Promise<Task | null> {
+  try {
+    const db = await getDatabase()
+    const collection = db.collection<WikiQuestTaskDocument>(COLLECTION_NAME)
+
+    const doc = await collection.findOne({ _id: questId })
+    return doc ? doc.task : null
+  } catch (error) {
+    console.error('Error getting wiki quest task by ID:', error)
+    throw error
+  }
+}
+
+/**
+ * Update a single quest task
+ */
+export async function updateWikiQuestTask(questId: string, task: Task): Promise<void> {
+  try {
+    const db = await getDatabase()
+    const collection = db.collection<WikiQuestTaskDocument>(COLLECTION_NAME)
+    const metadataCollection = db.collection<WikiQuestMetadataDocument>(COLLECTION_NAME)
+
+    const now = new Date()
+
+    // Update the quest document
+    await collection.updateOne(
+      { _id: questId },
+      {
+        $set: {
+          _id: questId,
+          questId,
+          task,
+          lastUpdated: now,
+        },
+        $setOnInsert: {
+          lastFetched: now,
+        },
+      },
+      { upsert: true }
+    )
+
+    // Update metadata lastUpdated timestamp
+    await metadataCollection.updateOne(
+      { _id: METADATA_ID },
+      {
+        $set: {
+          lastUpdated: now,
+        },
+      },
+      { upsert: false }
+    )
+  } catch (error) {
+    console.error('Error updating wiki quest task:', error)
+    throw error
   }
 }
 
