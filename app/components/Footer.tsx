@@ -3,7 +3,7 @@
 import { Text, XStack, YStack } from 'tamagui'
 import Link from 'next/link'
 
-const VERSION = '0.1.0-beta'
+const VERSION = '0.2.1-beta'
 
 export function Footer() {
   const currentYear = new Date().getFullYear()
